@@ -96,7 +96,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
           {
             id: "background",
             type: "background",
-            paint: { "background-color": "#000000" },
+            paint: { "background-color": "#ffffff" },
           },
           {
             id: "kartverket-topo",
@@ -194,8 +194,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
         ref={overlayContainerRef}
         className="absolute inset-0 pointer-events-none"
         style={{
-          mixBlendMode: "screen",
-          filter: "invert(1)",
+          mixBlendMode: "multiply",
           opacity: overlayVisible ? 1 : 0,
           transition: "opacity 0.3s ease",
         }}
