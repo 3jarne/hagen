@@ -1,26 +1,28 @@
 import type { Feature, Polygon, Position } from "geojson"
+import { distanceMeters, formatDistance, formatArea } from "@/lib/measurement"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DrawContext = any
+type Ctx = any
 
-const DrawRectangleDrag: {
-  onSetup: (this: DrawContext) => unknown
-  onMouseDown: (this: DrawContext, state: DrawContext, e: DrawContext) => void
-  onMouseMove: (this: DrawContext, state: DrawContext, e: DrawContext) => void
-  onMouseUp: (this: DrawContext, state: DrawContext) => void
-  onKeyUp: (this: DrawContext, state: DrawContext, e: { key: string }) => void
-  toDisplayFeatures: (this: DrawContext, state: DrawContext, geojson: Feature, display: (f: Feature) => void) => void
-  onStop: (this: DrawContext) => void
-  onTrash: (this: DrawContext, state: DrawContext) => void
+interface State {
+  rectangle: Ctx
+  firstPoint: Position | null
+}
+
+const DrawRectangleMode: {
+  onSetup: (this: Ctx) => State
+  onClick: (this: Ctx, state: State, e: Ctx) => void
+  onMouseMove: (this: Ctx, state: State, e: Ctx) => void
+  onKeyUp: (this: Ctx, state: State, e: { key: string }) => void
+  toDisplayFeatures: (this: Ctx, state: State, geojson: Feature, display: (f: Feature) => void) => void
+  onStop: (this: Ctx) => void
+  onTrash: (this: Ctx, state: State) => void
 } = {
-  onSetup(this: DrawContext) {
+  onSetup(this: Ctx): State {
     const rectangle = this.newFeature({
       type: "Feature",
       properties: {},
-      geometry: {
-        type: "Polygon",
-        coordinates: [[]],
-      },
+      geometry: { type: "Polygon", coordinates: [[]] },
     } as Feature<Polygon>)
     this.addFeature(rectangle)
     this.clearSelectedFeatures()
@@ -30,61 +32,50 @@ const DrawRectangleDrag: {
       combineFeatures: false,
       uncombineFeatures: false,
     })
-    this.map.dragPan.disable()
-    return {
-      rectangle,
-      startPoint: null as Position | null,
-      dragging: false,
-    }
+    return { rectangle, firstPoint: null }
   },
 
-  onMouseDown(this: DrawContext, state: DrawContext, e: DrawContext) {
-    state.startPoint = [e.lngLat.lng, e.lngLat.lat]
-    state.dragging = true
-  },
-
-  onMouseMove(this: DrawContext, state: DrawContext, e: DrawContext) {
-    if (!state.dragging || !state.startPoint) return
-    const start = state.startPoint as Position
-    const end: Position = [e.lngLat.lng, e.lngLat.lat]
-    state.rectangle.setCoordinates([
-      [
-        start,
-        [end[0], start[1]],
-        end,
-        [start[0], end[1]],
-        start,
-      ],
-    ])
-  },
-
-  onMouseUp(this: DrawContext, state: DrawContext) {
-    if (!state.dragging || !state.startPoint) return
-    state.dragging = false
-    // Only create if rectangle has area
-    const coords = state.rectangle.getCoordinates()
-    if (coords[0] && coords[0].length >= 4) {
+  onClick(this: Ctx, state: State, e: Ctx) {
+    if (!state.firstPoint) {
+      state.firstPoint = [e.lngLat.lng, e.lngLat.lat]
+    } else {
+      // Complete rectangle
+      this.map.fire("draw.measurement.clear", {})
       this.map.fire("draw.create", {
         features: [state.rectangle.toGeoJSON()],
       })
-    } else {
-      this.deleteFeature([state.rectangle.id], { silent: true })
+      this.changeMode("simple_select")
     }
-    this.map.dragPan.enable()
-    this.changeMode("simple_select")
   },
 
-  onKeyUp(this: DrawContext, state: DrawContext, e: { key: string }) {
+  onMouseMove(this: Ctx, state: State, e: Ctx) {
+    if (!state.firstPoint) return
+    const start = state.firstPoint
+    const end: Position = [e.lngLat.lng, e.lngLat.lat]
+    state.rectangle.setCoordinates([
+      [start, [end[0], start[1]], end, [start[0], end[1]], start],
+    ])
+    // Calculate and fire measurement
+    const width = distanceMeters(start, [end[0], start[1]])
+    const height = distanceMeters(start, [start[0], end[1]])
+    const area = width * height
+    this.map.fire("draw.measurement", {
+      text: `${formatDistance(width)} × ${formatDistance(height)}\n${formatArea(area)}`,
+      lngLat: e.lngLat,
+    })
+  },
+
+  onKeyUp(this: Ctx, state: State, e: { key: string }) {
     if (e.key === "Escape") {
       this.deleteFeature([state.rectangle.id], { silent: true })
-      this.map.dragPan.enable()
+      this.map.fire("draw.measurement.clear", {})
       this.changeMode("simple_select")
     }
   },
 
   toDisplayFeatures(
-    this: DrawContext,
-    _state: DrawContext,
+    this: Ctx,
+    _state: State,
     geojson: Feature,
     display: (f: Feature) => void
   ) {
@@ -92,16 +83,16 @@ const DrawRectangleDrag: {
     display(geojson)
   },
 
-  onStop(this: DrawContext) {
-    this.map.dragPan.enable()
+  onStop(this: Ctx) {
+    this.map.fire("draw.measurement.clear", {})
     this.updateUIClasses({ mouse: "none" })
   },
 
-  onTrash(this: DrawContext, state: DrawContext) {
+  onTrash(this: Ctx, state: State) {
     this.deleteFeature([state.rectangle.id], { silent: true })
-    this.map.dragPan.enable()
+    this.map.fire("draw.measurement.clear", {})
     this.changeMode("simple_select")
   },
 }
 
-export default DrawRectangleDrag
+export default DrawRectangleMode

@@ -1,4 +1,5 @@
 import type { Feature, Polygon, Position } from "geojson"
+import { distanceMeters, formatDistance, formatArea } from "@/lib/measurement"
 
 const CIRCLE_STEPS = 64
 
@@ -17,46 +18,32 @@ function createCirclePolygon(
       ((dx / 6371) * (180 / Math.PI)) / Math.cos((center[1] * Math.PI) / 180)
     coords.push([lng, lat])
   }
-  coords.push(coords[0]) // close the ring
+  coords.push(coords[0])
   return coords
 }
 
-function distance(a: Position, b: Position): number {
-  const R = 6371
-  const dLat = ((b[1] - a[1]) * Math.PI) / 180
-  const dLng = ((b[0] - a[0]) * Math.PI) / 180
-  const sinLat = Math.sin(dLat / 2)
-  const sinLng = Math.sin(dLng / 2)
-  const aVal =
-    sinLat * sinLat +
-    Math.cos((a[1] * Math.PI) / 180) *
-      Math.cos((b[1] * Math.PI) / 180) *
-      sinLng *
-      sinLng
-  return R * 2 * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal))
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Ctx = any
+
+interface State {
+  polygon: Ctx
+  center: Position | null
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DrawContext = any
-
-const DrawCircleDrag: {
-  onSetup: (this: DrawContext) => unknown
-  onMouseDown: (this: DrawContext, state: DrawContext, e: DrawContext) => void
-  onMouseMove: (this: DrawContext, state: DrawContext, e: DrawContext) => void
-  onMouseUp: (this: DrawContext, state: DrawContext) => void
-  onKeyUp: (this: DrawContext, state: DrawContext, e: { key: string }) => void
-  toDisplayFeatures: (this: DrawContext, state: DrawContext, geojson: Feature, display: (f: Feature) => void) => void
-  onStop: (this: DrawContext) => void
-  onTrash: (this: DrawContext, state: DrawContext) => void
+const DrawCircleMode: {
+  onSetup: (this: Ctx) => State
+  onClick: (this: Ctx, state: State, e: Ctx) => void
+  onMouseMove: (this: Ctx, state: State, e: Ctx) => void
+  onKeyUp: (this: Ctx, state: State, e: { key: string }) => void
+  toDisplayFeatures: (this: Ctx, state: State, geojson: Feature, display: (f: Feature) => void) => void
+  onStop: (this: Ctx) => void
+  onTrash: (this: Ctx, state: State) => void
 } = {
-  onSetup(this: DrawContext) {
+  onSetup(this: Ctx): State {
     const polygon = this.newFeature({
       type: "Feature",
       properties: { isCircle: true },
-      geometry: {
-        type: "Polygon",
-        coordinates: [[]],
-      },
+      geometry: { type: "Polygon", coordinates: [[]] },
     } as Feature<Polygon>)
     this.addFeature(polygon)
     this.clearSelectedFeatures()
@@ -66,55 +53,50 @@ const DrawCircleDrag: {
       combineFeatures: false,
       uncombineFeatures: false,
     })
-    this.map.dragPan.disable()
-    return {
-      polygon,
-      center: null as Position | null,
-      dragging: false,
-    }
+    return { polygon, center: null }
   },
 
-  onMouseDown(this: DrawContext, state: DrawContext, e: DrawContext) {
-    state.center = [e.lngLat.lng, e.lngLat.lat]
-    state.dragging = true
-  },
-
-  onMouseMove(this: DrawContext, state: DrawContext, e: DrawContext) {
-    if (!state.dragging || !state.center) return
-    const r = distance(state.center, [e.lngLat.lng, e.lngLat.lat])
-    if (r > 0) {
-      const coords = createCirclePolygon(state.center, r)
-      state.polygon.setCoordinates([coords])
-    }
-  },
-
-  onMouseUp(this: DrawContext, state: DrawContext) {
-    if (!state.dragging || !state.center) return
-    state.dragging = false
-    // Only create if circle has area
-    const coords = state.polygon.getCoordinates()
-    if (coords[0] && coords[0].length > 1) {
+  onClick(this: Ctx, state: State, e: Ctx) {
+    if (!state.center) {
+      state.center = [e.lngLat.lng, e.lngLat.lat]
+    } else {
+      // Complete circle
+      this.map.fire("draw.measurement.clear", {})
       this.map.fire("draw.create", {
         features: [state.polygon.toGeoJSON()],
       })
-    } else {
-      this.deleteFeature([state.polygon.id], { silent: true })
+      this.changeMode("simple_select")
     }
-    this.map.dragPan.enable()
-    this.changeMode("simple_select")
   },
 
-  onKeyUp(this: DrawContext, state: DrawContext, e: { key: string }) {
+  onMouseMove(this: Ctx, state: State, e: Ctx) {
+    if (!state.center) return
+    const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
+    const radiusM = distanceMeters(state.center, cursor)
+    const radiusKm = radiusM / 1000
+    if (radiusKm > 0) {
+      const coords = createCirclePolygon(state.center, radiusKm)
+      state.polygon.setCoordinates([coords])
+    }
+    // Fire measurement
+    const area = Math.PI * radiusM * radiusM
+    this.map.fire("draw.measurement", {
+      text: `r = ${formatDistance(radiusM)}\n${formatArea(area)}`,
+      lngLat: e.lngLat,
+    })
+  },
+
+  onKeyUp(this: Ctx, state: State, e: { key: string }) {
     if (e.key === "Escape") {
       this.deleteFeature([state.polygon.id], { silent: true })
-      this.map.dragPan.enable()
+      this.map.fire("draw.measurement.clear", {})
       this.changeMode("simple_select")
     }
   },
 
   toDisplayFeatures(
-    this: DrawContext,
-    _state: DrawContext,
+    this: Ctx,
+    _state: State,
     geojson: Feature,
     display: (f: Feature) => void
   ) {
@@ -122,16 +104,16 @@ const DrawCircleDrag: {
     display(geojson)
   },
 
-  onStop(this: DrawContext) {
-    this.map.dragPan.enable()
+  onStop(this: Ctx) {
+    this.map.fire("draw.measurement.clear", {})
     this.updateUIClasses({ mouse: "none" })
   },
 
-  onTrash(this: DrawContext, state: DrawContext) {
+  onTrash(this: Ctx, state: State) {
     this.deleteFeature([state.polygon.id], { silent: true })
-    this.map.dragPan.enable()
+    this.map.fire("draw.measurement.clear", {})
     this.changeMode("simple_select")
   },
 }
 
-export default DrawCircleDrag
+export default DrawCircleMode

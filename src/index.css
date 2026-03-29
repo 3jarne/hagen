@@ -58,3 +58,24 @@
     margin: 0;
   }
 }
+
+/* Measurement popup */
+.measurement-popup .mapboxgl-popup-content {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: monospace;
+  line-height: 1.4;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.measurement-popup .mapboxgl-popup-tip {
+  display: none;
+}
+
+.measurement-text {
+  white-space: nowrap;
+}
