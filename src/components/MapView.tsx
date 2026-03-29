@@ -17,7 +17,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
       map.addSource("kartverket-wms", {
         type: "raster",
         tiles: [
-          "https://wms.geonorge.no/skwms1/wms.matrikkelkart?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=eiendomskart&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}",
+          "https://openwms.statkart.no/skwms1/wms.matrikkel?bbox={bbox-epsg-3857}&format=image/png&service=WMS&version=1.1.1&request=GetMap&srs=EPSG:3857&transparent=true&width=256&height=256&layers=eiendomskart",
         ],
         tileSize: 256,
         minzoom: 14,
