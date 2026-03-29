@@ -13,19 +13,23 @@ export function MapView({ onZoomChange }: MapViewProps) {
   const mapRef = useRef<mapboxgl.Map | null>(null)
 
   const addKartverketLayers = useCallback((map: mapboxgl.Map) => {
-    if (!map.getSource("kartverket-wms")) {
-      map.addSource("kartverket-wms", {
+    if (!map.getSource("kartverket-topo")) {
+      map.addSource("kartverket-topo", {
         type: "raster",
         tiles: [
-          "https://openwms.statkart.no/skwms1/wms.matrikkel?bbox={bbox-epsg-3857}&format=image/png&service=WMS&version=1.1.1&request=GetMap&srs=EPSG:3857&transparent=true&width=256&height=256&layers=eiendomskart",
+          "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
         ],
         tileSize: 256,
         minzoom: 14,
+        maxzoom: 18,
       })
       map.addLayer({
-        id: "kartverket-wms",
+        id: "kartverket-topo",
         type: "raster",
-        source: "kartverket-wms",
+        source: "kartverket-topo",
+        paint: {
+          "raster-opacity": 0.6,
+        },
       })
     }
   }, [])
@@ -113,7 +117,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
     // Only use GPS if user hasn't configured custom coordinates
     const settings = loadSettings()
     const hasCustomCoords =
-      settings.lat !== 60.3723 || settings.lng !== 11.0701
+      settings.lat !== 60.41601 || settings.lng !== 11.05218
 
     if (
       !hasCustomCoords &&

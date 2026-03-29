@@ -21,10 +21,10 @@ export interface HageplanSettings {
 
 const DEFAULTS: HageplanSettings = {
   mapboxToken: "",
-  lat: 60.3723,
-  lng: 11.0701,
-  gnr: 0,
-  bnr: 0,
+  lat: 60.41601,
+  lng: 11.05218,
+  gnr: 32,
+  bnr: 234,
 }
 
 export function loadSettings(): HageplanSettings {
