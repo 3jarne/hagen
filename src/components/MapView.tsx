@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback, useState } from "react"
 import mapboxgl from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { CONFIG } from "@/config"
@@ -7,12 +7,64 @@ interface MapViewProps {
   onZoomChange: (zoom: number) => void
 }
 
+function TokenPrompt() {
+  const [token, setToken] = useState("")
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (token.trim().startsWith("pk.")) {
+      CONFIG.setMapboxToken(token.trim())
+      window.location.reload()
+    }
+  }
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-muted">
+      <form
+        onSubmit={handleSubmit}
+        className="rounded-lg border bg-card p-6 shadow-lg max-w-md w-full mx-4"
+      >
+        <h2 className="text-lg font-semibold text-card-foreground mb-2">
+          Welcome to Hageplan
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          To display the map, paste your Mapbox public token below.
+          Get one free at{" "}
+          <a
+            href="https://account.mapbox.com/access-tokens/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline text-foreground"
+          >
+            mapbox.com
+          </a>
+          . It starts with <code className="rounded bg-muted px-1 py-0.5 text-xs">pk.</code>
+        </p>
+        <input
+          type="text"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="pk.eyJ1Ijoi..."
+          className="w-full h-9 px-3 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring mb-3"
+          autoFocus
+        />
+        <button
+          type="submit"
+          disabled={!token.trim().startsWith("pk.")}
+          className="w-full h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none"
+        >
+          Load map
+        </button>
+      </form>
+    </div>
+  )
+}
+
 export function MapView({ onZoomChange }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
 
   const addKartverketLayers = useCallback((map: mapboxgl.Map) => {
-    // Kartverket WMS — all property lines
     if (!map.getSource("kartverket-wms")) {
       map.addSource("kartverket-wms", {
         type: "raster",
@@ -76,14 +128,10 @@ export function MapView({ onZoomChange }: MapViewProps) {
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
 
-    if (
-      !CONFIG.mapboxToken ||
-      CONFIG.mapboxToken === "your_token_here"
-    ) {
-      return
-    }
+    const token = CONFIG.mapboxToken
+    if (!token || token === "your_token_here") return
 
-    mapboxgl.accessToken = CONFIG.mapboxToken
+    mapboxgl.accessToken = token
 
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
@@ -95,7 +143,6 @@ export function MapView({ onZoomChange }: MapViewProps) {
 
     mapRef.current = map
 
-    // Controls
     map.addControl(
       new mapboxgl.NavigationControl(),
       "bottom-right"
@@ -105,21 +152,17 @@ export function MapView({ onZoomChange }: MapViewProps) {
       "bottom-left"
     )
 
-    // Zoom change handler
     map.on("zoom", () => {
       onZoomChange(map.getZoom())
     })
 
-    // Fire initial zoom
     onZoomChange(CONFIG.defaultZoom)
 
-    // On map load — add layers
     map.on("load", () => {
       addKartverketLayers(map)
       addUserPlotLayer(map)
     })
 
-    // GPS geolocation
     if (navigator.geolocation && window.location.protocol === "https:") {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -140,22 +183,9 @@ export function MapView({ onZoomChange }: MapViewProps) {
     }
   }, [onZoomChange, addKartverketLayers, addUserPlotLayer])
 
-  // Show error if no token
-  if (!CONFIG.mapboxToken || CONFIG.mapboxToken === "your_token_here") {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center bg-muted">
-        <div className="rounded-lg border bg-card p-6 shadow-lg max-w-md text-center">
-          <p className="text-sm text-card-foreground">
-            Mapbox token missing or invalid. Add{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              VITE_MAPBOX_TOKEN
-            </code>{" "}
-            to your <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>{" "}
-            file and restart.
-          </p>
-        </div>
-      </div>
-    )
+  const token = CONFIG.mapboxToken
+  if (!token || token === "your_token_here") {
+    return <TokenPrompt />
   }
 
   return (
