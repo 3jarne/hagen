@@ -24,6 +24,8 @@ function App() {
   const [canRedo, setCanRedo] = useState(false)
   const undoRef = useRef<(() => void) | null>(null)
   const redoRef = useRef<(() => void) | null>(null)
+  const exportJSONRef = useRef<(() => void) | null>(null)
+  const exportPNGRef = useRef<(() => void) | null>(null)
 
   // Properties panel state
   const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
@@ -64,6 +66,14 @@ function App() {
     redoRef.current?.()
   }, [])
 
+  const handleExportJSON = useCallback(() => {
+    exportJSONRef.current?.()
+  }, [])
+
+  const handleExportPNG = useCallback(() => {
+    exportPNGRef.current?.()
+  }, [])
+
   const handleShapeChange = useCallback(
     (partial: Partial<ShapeProperties>) => {
       // If changing zone category, apply preset colors
@@ -101,6 +111,8 @@ function App() {
         canRedo={canRedo}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        onExportJSON={handleExportJSON}
+        onExportPNG={handleExportPNG}
       />
       <MapView
         onZoomChange={handleZoomChange}
@@ -115,6 +127,8 @@ function App() {
         onTextDefaultsChange={setTextDefaults}
         onPanelModeChange={setPanelMode}
         onEditingSelectionChange={setIsEditingSelection}
+        exportJSONRef={exportJSONRef}
+        exportPNGRef={exportPNGRef}
       />
       <FloatingToolbar activeTool={activeTool} onToolChange={handleToolChange} />
       <PropertiesPanel

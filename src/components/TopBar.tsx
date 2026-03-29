@@ -20,6 +20,8 @@ interface TopBarProps {
   canRedo: boolean
   onUndo: () => void
   onRedo: () => void
+  onExportJSON: () => void
+  onExportPNG: () => void
 }
 
 export function TopBar({
@@ -29,6 +31,8 @@ export function TopBar({
   canRedo,
   onUndo,
   onRedo,
+  onExportJSON,
+  onExportPNG,
 }: TopBarProps) {
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex items-center h-10 border-b bg-background">
@@ -36,8 +40,8 @@ export function TopBar({
         <MenubarMenu>
           <MenubarTrigger>File</MenubarTrigger>
           <MenubarContent>
-            <MenubarItem disabled>Export JSON</MenubarItem>
-            <MenubarItem disabled>Export PNG</MenubarItem>
+            <MenubarItem onClick={onExportJSON}>Export JSON</MenubarItem>
+            <MenubarItem onClick={onExportPNG}>Export PNG</MenubarItem>
           </MenubarContent>
         </MenubarMenu>
 

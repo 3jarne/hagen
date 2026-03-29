@@ -16,6 +16,13 @@ import type { Position, Feature, Polygon } from "geojson"
 import type { ShapeProperties, TextProperties } from "@/lib/zone-defaults"
 import type { PanelMode } from "@/App"
 
+const STORAGE_KEY = "hageplan-project"
+
+interface SavedProject {
+  drawFeatures: Feature[]
+  textFeatures: Feature[]
+}
+
 interface MapViewProps {
   onZoomChange: (zoom: number) => void
   activeTool: Tool
@@ -29,6 +36,8 @@ interface MapViewProps {
   onTextDefaultsChange: (props: TextProperties) => void
   onPanelModeChange: (mode: PanelMode) => void
   onEditingSelectionChange: (editing: boolean) => void
+  exportJSONRef: React.MutableRefObject<(() => void) | null>
+  exportPNGRef: React.MutableRefObject<(() => void) | null>
 }
 
 interface ContextMenuState {
@@ -51,6 +60,8 @@ export function MapView({
   onTextDefaultsChange,
   onPanelModeChange,
   onEditingSelectionChange,
+  exportJSONRef,
+  exportPNGRef,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -79,12 +90,38 @@ export function MapView({
     startLngLat: { lng: number; lat: number }
   } | null>(null)
 
+  // Auto-save
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveToStorageRef = useRef<(() => void) | null>(null)
+
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
 
   useEffect(() => {
     activeToolRef.current = activeTool
   }, [activeTool])
+
+  /** Debounced save to localStorage */
+  const saveToStorage = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      const draw = drawRef.current
+      if (!draw) return
+      const project: SavedProject = {
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+      }
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(project))
+      } catch {
+        // Storage full or unavailable — silent fail
+      }
+    }, 500)
+  }, [])
+
+  useEffect(() => {
+    saveToStorageRef.current = saveToStorage
+  }, [saveToStorage])
 
   const addUserPlotLayer = useCallback(async (map: mapboxgl.Map) => {
     if (CONFIG.gnr === 0 && CONFIG.bnr === 0) return
@@ -186,7 +223,8 @@ export function MapView({
       drawFeatures: draw.getAll().features,
       textFeatures: [...textFeaturesRef.current],
     })
-  }, [])
+    saveToStorage()
+  }, [saveToStorage])
 
   const restoreSnapshot = useCallback(
     (snapshot: Snapshot) => {
@@ -201,8 +239,9 @@ export function MapView({
       selectedTextIdsRef.current.clear()
       syncTextLabels(map)
       updateAreaLabels(map, draw)
+      saveToStorage()
     },
-    [updateAreaLabels, syncTextLabels]
+    [updateAreaLabels, syncTextLabels, saveToStorage]
   )
 
   const handleUndo = useCallback(() => {
@@ -422,7 +461,30 @@ export function MapView({
         },
       })
 
-      history.push({ drawFeatures: [], textFeatures: [] })
+      // Load saved project from localStorage
+      let loaded = false
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if (raw) {
+          const saved: SavedProject = JSON.parse(raw)
+          if (saved.drawFeatures?.length || saved.textFeatures?.length) {
+            for (const feature of saved.drawFeatures) {
+              draw.add(feature)
+            }
+            textFeaturesRef.current = saved.textFeatures || []
+            syncTextLabels(map)
+            updateAreaLabels(map, draw)
+            loaded = true
+          }
+        }
+      } catch {
+        // Corrupt data — ignore
+      }
+
+      history.push({
+        drawFeatures: loaded ? draw.getAll().features : [],
+        textFeatures: loaded ? [...textFeaturesRef.current] : [],
+      })
     })
 
     // Draw events
@@ -442,6 +504,7 @@ export function MapView({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
       })
+      saveToStorageRef.current?.()
     })
 
     map.on("draw.update", () => {
@@ -450,6 +513,7 @@ export function MapView({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
       })
+      saveToStorageRef.current?.()
     })
 
     map.on("draw.delete", () => {
@@ -458,6 +522,7 @@ export function MapView({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
       })
+      saveToStorageRef.current?.()
     })
 
     // Auto-switch tool to select after shape completion
@@ -551,6 +616,7 @@ export function MapView({
           drawFeatures: draw.getAll().features,
           textFeatures: [...textFeaturesRef.current],
         })
+        saveToStorageRef.current?.()
       })
     })
 
@@ -641,6 +707,7 @@ export function MapView({
             drawFeatures: draw.getAll().features,
             textFeatures: [...textFeaturesRef.current],
           })
+          saveToStorageRef.current?.()
         }
       )
     })
@@ -754,6 +821,7 @@ export function MapView({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
       })
+      saveToStorageRef.current?.()
     })
 
     // Close context menu on map interaction
@@ -869,7 +937,8 @@ export function MapView({
     // Force re-render with updated properties
     draw.set(draw.getAll())
     updateAreaLabels(map, draw)
-  }, [shapeDefaults, updateAreaLabels])
+    saveToStorage()
+  }, [shapeDefaults, updateAreaLabels, saveToStorage])
 
   // Live-edit selected text features when textDefaults change
   useEffect(() => {
@@ -889,7 +958,47 @@ export function MapView({
       }
     })
     syncTextLabels(map)
-  }, [textDefaults, syncTextLabels])
+    saveToStorage()
+  }, [textDefaults, syncTextLabels, saveToStorage])
+
+  // Export functions
+  const handleExportJSON = useCallback(() => {
+    const draw = drawRef.current
+    if (!draw) return
+    const project: SavedProject = {
+      drawFeatures: draw.getAll().features,
+      textFeatures: [...textFeaturesRef.current],
+    }
+    const blob = new Blob([JSON.stringify(project, null, 2)], {
+      type: "application/json",
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "hageplan.json"
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  const handleExportPNG = useCallback(() => {
+    const map = mapRef.current
+    if (!map) return
+    const canvas = map.getCanvas()
+    canvas.toBlob((blob) => {
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "hageplan.png"
+      a.click()
+      URL.revokeObjectURL(url)
+    })
+  }, [])
+
+  useEffect(() => {
+    exportJSONRef.current = handleExportJSON
+    exportPNGRef.current = handleExportPNG
+  }, [handleExportJSON, handleExportPNG, exportJSONRef, exportPNGRef])
 
   // Context menu actions
   const handleContextDelete = useCallback(() => {
