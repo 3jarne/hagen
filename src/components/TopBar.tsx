@@ -1,4 +1,4 @@
-import { Undo2, Redo2, Search } from "lucide-react"
+import { Undo2, Redo2, Search, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Menubar,
@@ -15,9 +15,10 @@ import {
 
 interface TopBarProps {
   zoomLevel: number
+  onOpenSettings: () => void
 }
 
-export function TopBar({ zoomLevel }: TopBarProps) {
+export function TopBar({ zoomLevel, onOpenSettings }: TopBarProps) {
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex items-center h-10 border-b bg-background">
       <Menubar className="border-none rounded-none h-full shadow-none">
@@ -102,9 +103,19 @@ export function TopBar({ zoomLevel }: TopBarProps) {
       </div>
 
       {/* Zoom level */}
-      <div className="pr-3 text-xs text-muted-foreground font-mono whitespace-nowrap">
+      <div className="pr-1 text-xs text-muted-foreground font-mono whitespace-nowrap">
         z{Math.round(zoomLevel)}
       </div>
+
+      {/* Settings */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 mr-2"
+        onClick={onOpenSettings}
+      >
+        <Settings className="h-4 w-4" />
+      </Button>
     </div>
   )
 }
