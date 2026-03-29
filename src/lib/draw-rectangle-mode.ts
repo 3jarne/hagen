@@ -1,45 +1,9 @@
 import type { Feature, Polygon, Position } from "geojson"
 
-const CIRCLE_STEPS = 64
-
-function createCirclePolygon(
-  center: Position,
-  radiusInKm: number
-): Position[] {
-  const coords: Position[] = []
-  for (let i = 0; i < CIRCLE_STEPS; i++) {
-    const angle = (i / CIRCLE_STEPS) * 2 * Math.PI
-    const dx = radiusInKm * Math.cos(angle)
-    const dy = radiusInKm * Math.sin(angle)
-    const lat = center[1] + (dy / 6371) * (180 / Math.PI)
-    const lng =
-      center[0] +
-      ((dx / 6371) * (180 / Math.PI)) / Math.cos((center[1] * Math.PI) / 180)
-    coords.push([lng, lat])
-  }
-  coords.push(coords[0]) // close the ring
-  return coords
-}
-
-function distance(a: Position, b: Position): number {
-  const R = 6371
-  const dLat = ((b[1] - a[1]) * Math.PI) / 180
-  const dLng = ((b[0] - a[0]) * Math.PI) / 180
-  const sinLat = Math.sin(dLat / 2)
-  const sinLng = Math.sin(dLng / 2)
-  const aVal =
-    sinLat * sinLat +
-    Math.cos((a[1] * Math.PI) / 180) *
-      Math.cos((b[1] * Math.PI) / 180) *
-      sinLng *
-      sinLng
-  return R * 2 * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal))
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DrawContext = any
 
-const DrawCircleDrag: {
+const DrawRectangleDrag: {
   onSetup: (this: DrawContext) => unknown
   onMouseDown: (this: DrawContext, state: DrawContext, e: DrawContext) => void
   onMouseMove: (this: DrawContext, state: DrawContext, e: DrawContext) => void
@@ -50,15 +14,15 @@ const DrawCircleDrag: {
   onTrash: (this: DrawContext, state: DrawContext) => void
 } = {
   onSetup(this: DrawContext) {
-    const polygon = this.newFeature({
+    const rectangle = this.newFeature({
       type: "Feature",
-      properties: { isCircle: true },
+      properties: {},
       geometry: {
         type: "Polygon",
         coordinates: [[]],
       },
     } as Feature<Polygon>)
-    this.addFeature(polygon)
+    this.addFeature(rectangle)
     this.clearSelectedFeatures()
     this.updateUIClasses({ mouse: "add" })
     this.setActionableState({
@@ -68,37 +32,43 @@ const DrawCircleDrag: {
     })
     this.map.dragPan.disable()
     return {
-      polygon,
-      center: null as Position | null,
+      rectangle,
+      startPoint: null as Position | null,
       dragging: false,
     }
   },
 
   onMouseDown(this: DrawContext, state: DrawContext, e: DrawContext) {
-    state.center = [e.lngLat.lng, e.lngLat.lat]
+    state.startPoint = [e.lngLat.lng, e.lngLat.lat]
     state.dragging = true
   },
 
   onMouseMove(this: DrawContext, state: DrawContext, e: DrawContext) {
-    if (!state.dragging || !state.center) return
-    const r = distance(state.center, [e.lngLat.lng, e.lngLat.lat])
-    if (r > 0) {
-      const coords = createCirclePolygon(state.center, r)
-      state.polygon.setCoordinates([coords])
-    }
+    if (!state.dragging || !state.startPoint) return
+    const start = state.startPoint as Position
+    const end: Position = [e.lngLat.lng, e.lngLat.lat]
+    state.rectangle.setCoordinates([
+      [
+        start,
+        [end[0], start[1]],
+        end,
+        [start[0], end[1]],
+        start,
+      ],
+    ])
   },
 
   onMouseUp(this: DrawContext, state: DrawContext) {
-    if (!state.dragging || !state.center) return
+    if (!state.dragging || !state.startPoint) return
     state.dragging = false
-    // Only create if circle has area
-    const coords = state.polygon.getCoordinates()
-    if (coords[0] && coords[0].length > 1) {
+    // Only create if rectangle has area
+    const coords = state.rectangle.getCoordinates()
+    if (coords[0] && coords[0].length >= 4) {
       this.map.fire("draw.create", {
-        features: [state.polygon.toGeoJSON()],
+        features: [state.rectangle.toGeoJSON()],
       })
     } else {
-      this.deleteFeature([state.polygon.id], { silent: true })
+      this.deleteFeature([state.rectangle.id], { silent: true })
     }
     this.map.dragPan.enable()
     this.changeMode("simple_select")
@@ -106,7 +76,7 @@ const DrawCircleDrag: {
 
   onKeyUp(this: DrawContext, state: DrawContext, e: { key: string }) {
     if (e.key === "Escape") {
-      this.deleteFeature([state.polygon.id], { silent: true })
+      this.deleteFeature([state.rectangle.id], { silent: true })
       this.map.dragPan.enable()
       this.changeMode("simple_select")
     }
@@ -128,10 +98,10 @@ const DrawCircleDrag: {
   },
 
   onTrash(this: DrawContext, state: DrawContext) {
-    this.deleteFeature([state.polygon.id], { silent: true })
+    this.deleteFeature([state.rectangle.id], { silent: true })
     this.map.dragPan.enable()
     this.changeMode("simple_select")
   },
 }
 
-export default DrawCircleDrag
+export default DrawRectangleDrag

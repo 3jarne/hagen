@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback } from "react"
 import mapboxgl from "mapbox-gl"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
 import "mapbox-gl/dist/mapbox-gl.css"
@@ -6,8 +6,8 @@ import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css"
 import { CONFIG } from "@/config"
 import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 import { drawStyles } from "@/lib/draw-styles"
-import DrawCircle from "@/lib/draw-circle-mode"
-import DrawRectangle from "mapbox-gl-draw-rectangle-mode"
+import DrawCircleDrag from "@/lib/draw-circle-mode"
+import DrawRectangleDrag from "@/lib/draw-rectangle-mode"
 import { UndoRedoHistory, type Snapshot } from "@/lib/history"
 import type { Tool } from "@/components/FloatingToolbar"
 
@@ -38,13 +38,11 @@ export function MapView({
   redoRef,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
-  const overlayContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
-  const overlayMapRef = useRef<mapboxgl.Map | null>(null)
   const drawRef = useRef<MapboxDraw | null>(null)
   const historyRef = useRef<UndoRedoHistory | null>(null)
-  const [overlayVisible, setOverlayVisible] = useState(true)
   const activeToolRef = useRef<Tool>(activeTool)
+  const spaceHeldRef = useRef(false)
 
   // Keep ref in sync with prop
   useEffect(() => {
@@ -82,18 +80,6 @@ export function MapView({
     []
   )
 
-  // Save current state to history
-  const saveToHistory = useCallback(() => {
-    const draw = drawRef.current
-    const history = historyRef.current
-    if (!draw || !history) return
-    const snapshot: Snapshot = {
-      drawFeatures: draw.getAll().features,
-      textFeatures: [], // Phase 3
-    }
-    history.push(snapshot)
-  }, [])
-
   // Restore a snapshot
   const restoreSnapshot = useCallback((snapshot: Snapshot) => {
     const draw = drawRef.current
@@ -127,12 +113,7 @@ export function MapView({
   }, [handleUndo, handleRedo, undoRef, redoRef])
 
   useEffect(() => {
-    if (
-      !mapContainerRef.current ||
-      !overlayContainerRef.current ||
-      mapRef.current
-    )
-      return
+    if (!mapContainerRef.current || mapRef.current) return
     if (!hasValidToken()) return
 
     mapboxgl.accessToken = CONFIG.mapboxToken
@@ -153,8 +134,8 @@ export function MapView({
       styles: drawStyles,
       modes: {
         ...MapboxDraw.modes,
-        draw_rectangle: DrawRectangle,
-        draw_circle: DrawCircle,
+        draw_rectangle: DrawRectangleDrag,
+        draw_circle: DrawCircleDrag,
       },
     })
     map.addControl(draw as unknown as mapboxgl.IControl)
@@ -164,55 +145,7 @@ export function MapView({
     const history = new UndoRedoHistory(onUndoRedoChange)
     historyRef.current = history
 
-    // Kartverket overlay map — multiply blended on top
-    const overlayMap = new mapboxgl.Map({
-      container: overlayContainerRef.current,
-      style: {
-        version: 8,
-        sources: {
-          "kartverket-topo": {
-            type: "raster",
-            tiles: [
-              "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
-            ],
-            tileSize: 256,
-            minzoom: 14,
-            maxzoom: 18,
-          },
-        },
-        layers: [
-          {
-            id: "background",
-            type: "background",
-            paint: { "background-color": "#ffffff" },
-          },
-          {
-            id: "kartverket-topo",
-            type: "raster",
-            source: "kartverket-topo",
-            paint: {},
-          },
-        ],
-      },
-      center: CONFIG.defaultCenter,
-      zoom: CONFIG.defaultZoom,
-      interactive: false,
-      attributionControl: false,
-    })
-    overlayMapRef.current = overlayMap
-
-    // Sync overlay to main map
-    const syncOverlay = () => {
-      overlayMap.jumpTo({
-        center: map.getCenter(),
-        zoom: map.getZoom(),
-        bearing: map.getBearing(),
-        pitch: map.getPitch(),
-      })
-    }
-    map.on("move", syncOverlay)
-
-    // Controls on main map only
+    // Controls
     map.addControl(new mapboxgl.NavigationControl(), "bottom-right")
     map.addControl(
       new mapboxgl.ScaleControl({ unit: "metric" }),
@@ -220,15 +153,44 @@ export function MapView({
     )
 
     map.on("zoom", () => {
-      const z = map.getZoom()
-      onZoomChange(z)
-      setOverlayVisible(z >= 13.5)
+      onZoomChange(map.getZoom())
     })
 
     onZoomChange(CONFIG.defaultZoom)
 
     map.on("load", () => {
+      // Add Kartverket topo as a raster layer on the main map (below draw layers)
+      map.addSource("kartverket-topo", {
+        type: "raster",
+        tiles: [
+          "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
+        ],
+        tileSize: 256,
+        minzoom: 14,
+        maxzoom: 18,
+      })
+
+      // Find the first draw layer to insert Kartverket below it
+      const layers = map.getStyle().layers || []
+      const firstDrawLayer = layers.find((l) =>
+        l.id.startsWith("gl-draw-")
+      )
+
+      map.addLayer(
+        {
+          id: "kartverket-topo",
+          type: "raster",
+          source: "kartverket-topo",
+          paint: {
+            "raster-opacity": 0.4,
+          },
+        },
+        firstDrawLayer?.id // insert before draw layers
+      )
+
+      // Add user plot on top of Kartverket but below draw
       addUserPlotLayer(map)
+
       // Push initial empty state to history
       history.push({ drawFeatures: [], textFeatures: [] })
     })
@@ -238,12 +200,24 @@ export function MapView({
       for (const feature of e.features) {
         const id = feature.id as string
         draw.setFeatureProperty(id, "user_fillColor", ZONE_DEFAULTS.fillColor)
-        draw.setFeatureProperty(id, "user_fillOpacity", ZONE_DEFAULTS.fillOpacity)
-        draw.setFeatureProperty(id, "user_strokeColor", ZONE_DEFAULTS.strokeColor)
-        draw.setFeatureProperty(id, "user_strokeWidth", ZONE_DEFAULTS.strokeWidth)
+        draw.setFeatureProperty(
+          id,
+          "user_fillOpacity",
+          ZONE_DEFAULTS.fillOpacity
+        )
+        draw.setFeatureProperty(
+          id,
+          "user_strokeColor",
+          ZONE_DEFAULTS.strokeColor
+        )
+        draw.setFeatureProperty(
+          id,
+          "user_strokeWidth",
+          ZONE_DEFAULTS.strokeWidth
+        )
         draw.setFeatureProperty(id, "user_zone", ZONE_DEFAULTS.zone)
       }
-      // Force style refresh by re-adding features
+      // Force style refresh
       const all = draw.getAll()
       draw.set(all)
 
@@ -270,16 +244,6 @@ export function MapView({
       history.push(snapshot)
     })
 
-    // Click on empty map in simple_select → deselect
-    map.on("click", () => {
-      if (activeToolRef.current === "select") {
-        const selected = draw.getSelectedIds()
-        if (selected.length === 0) {
-          // Already deselected
-        }
-      }
-    })
-
     // Only use GPS if user hasn't configured custom coordinates
     const settings = loadSettings()
     const hasCustomCoords =
@@ -303,38 +267,54 @@ export function MapView({
     }
 
     return () => {
-      map.off("move", syncOverlay)
-      overlayMap.remove()
-      overlayMapRef.current = null
       map.removeControl(draw as unknown as mapboxgl.IControl)
       drawRef.current = null
       map.remove()
       mapRef.current = null
     }
-  }, [onZoomChange, onUndoRedoChange, addUserPlotLayer, saveToHistory])
+  }, [onZoomChange, onUndoRedoChange, addUserPlotLayer])
 
-  // Sync active tool to draw mode
+  // Sync active tool to draw mode + manage dragPan
   useEffect(() => {
     const draw = drawRef.current
-    if (!draw) return
+    const map = mapRef.current
+    if (!draw || !map) return
+
+    const isDrawTool =
+      activeTool === "polygon" ||
+      activeTool === "rectangle" ||
+      activeTool === "circle"
 
     switch (activeTool) {
       case "select":
         draw.changeMode("simple_select")
+        map.dragPan.enable()
         break
       case "polygon":
         draw.changeMode("draw_polygon")
+        // Polygon mode uses clicks, not drag — but disable dragPan
+        // so accidental drags don't pan. Space+drag overrides.
+        map.dragPan.disable()
         break
       case "rectangle":
         draw.changeMode("draw_rectangle")
+        // Rectangle mode handles dragPan internally
         break
       case "circle":
         draw.changeMode("draw_circle")
+        // Circle mode handles dragPan internally
         break
       case "text":
-        // Phase 3
         draw.changeMode("simple_select")
+        map.dragPan.enable()
         break
+    }
+
+    // For draw tools, we track whether to restore dragPan on tool change
+    return () => {
+      if (isDrawTool && map.dragPan) {
+        map.dragPan.enable()
+      }
     }
   }, [activeTool])
 
@@ -345,7 +325,19 @@ export function MapView({
       const tag = (e.target as HTMLElement).tagName
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
 
-      // Tool shortcuts
+      // Space+drag to pan from any tool
+      if (e.key === " " && !e.repeat) {
+        e.preventDefault()
+        spaceHeldRef.current = true
+        const map = mapRef.current
+        if (map) {
+          map.dragPan.enable()
+          map.getCanvas().style.cursor = "grab"
+        }
+        return
+      }
+
+      // Tool shortcuts (only when no modifier keys)
       if (!e.metaKey && !e.ctrlKey && !e.altKey) {
         switch (e.key.toLowerCase()) {
           case "v":
@@ -364,11 +356,21 @@ export function MapView({
             onToolChange("text")
             return
           case "escape": {
+            // Cancel in-progress drawing — trash any partial feature
             const draw = drawRef.current
             if (draw) {
+              draw.trash()
               draw.changeMode("simple_select")
             }
             onToolChange("select")
+            return
+          }
+          case "delete":
+          case "backspace": {
+            const draw = drawRef.current
+            if (draw) {
+              draw.trash()
+            }
             return
           }
         }
@@ -389,8 +391,31 @@ export function MapView({
       }
     }
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === " ") {
+        spaceHeldRef.current = false
+        const map = mapRef.current
+        if (map) {
+          map.getCanvas().style.cursor = ""
+          // Re-disable dragPan if in a draw tool
+          const tool = activeToolRef.current
+          if (
+            tool === "polygon" ||
+            tool === "rectangle" ||
+            tool === "circle"
+          ) {
+            map.dragPan.disable()
+          }
+        }
+      }
+    }
+
     window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
+    }
   }, [onToolChange, handleUndo, handleRedo])
 
   if (!hasValidToken()) {
@@ -406,18 +431,5 @@ export function MapView({
     )
   }
 
-  return (
-    <>
-      <div ref={mapContainerRef} className="absolute inset-0" />
-      <div
-        ref={overlayContainerRef}
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          mixBlendMode: "multiply",
-          opacity: overlayVisible ? 1 : 0,
-          transition: "opacity 0.3s ease",
-        }}
-      />
-    </>
-  )
+  return <div ref={mapContainerRef} className="absolute inset-0" />
 }
