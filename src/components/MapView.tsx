@@ -10,32 +10,9 @@ interface MapViewProps {
 
 export function MapView({ onZoomChange }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
+  const overlayContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
-
-  const addKartverketLayers = useCallback((map: mapboxgl.Map) => {
-    if (!map.getSource("kartverket-topo")) {
-      map.addSource("kartverket-topo", {
-        type: "raster",
-        tiles: [
-          "https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png",
-        ],
-        tileSize: 256,
-        minzoom: 14,
-        maxzoom: 18,
-      })
-      map.addLayer({
-        id: "kartverket-topo",
-        type: "raster",
-        source: "kartverket-topo",
-        paint: {
-          "raster-opacity": 0.45,
-          "raster-contrast": 0.8,
-          "raster-brightness-min": 0.3,
-          "raster-saturation": -1,
-        },
-      })
-    }
-  }, [])
+  const overlayMapRef = useRef<mapboxgl.Map | null>(null)
 
   const addUserPlotLayer = useCallback(
     async (map: mapboxgl.Map) => {
@@ -74,19 +51,20 @@ export function MapView({ onZoomChange }: MapViewProps) {
           })
         }
       } catch {
-        // Silent fail — WMS lines still visible
+        // Silent fail
       }
     },
     []
   )
 
   useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current) return
+    if (!mapContainerRef.current || !overlayContainerRef.current || mapRef.current) return
 
     if (!hasValidToken()) return
 
     mapboxgl.accessToken = CONFIG.mapboxToken
 
+    // Main map — satellite imagery
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: "mapbox://styles/mapbox/satellite-v9",
@@ -97,14 +75,62 @@ export function MapView({ onZoomChange }: MapViewProps) {
 
     mapRef.current = map
 
-    map.addControl(
-      new mapboxgl.NavigationControl(),
-      "bottom-right"
-    )
-    map.addControl(
-      new mapboxgl.ScaleControl({ unit: "metric" }),
-      "bottom-left"
-    )
+    // Kartverket overlay map — screen blended on top
+    const overlayMap = new mapboxgl.Map({
+      container: overlayContainerRef.current,
+      style: {
+        version: 8,
+        sources: {
+          "kartverket-topo": {
+            type: "raster",
+            tiles: [
+              "https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png",
+            ],
+            tileSize: 256,
+            minzoom: 14,
+            maxzoom: 18,
+          },
+        },
+        layers: [
+          {
+            id: "background",
+            type: "background",
+            paint: { "background-color": "#000000" },
+          },
+          {
+            id: "kartverket-topo",
+            type: "raster",
+            source: "kartverket-topo",
+            paint: {
+              "raster-contrast": 0.5,
+              "raster-brightness-min": 0.1,
+            },
+          },
+        ],
+      },
+      center: CONFIG.defaultCenter,
+      zoom: CONFIG.defaultZoom,
+      interactive: false,
+      attributionControl: false,
+    })
+
+    overlayMapRef.current = overlayMap
+
+    // Sync overlay to main map
+    const syncOverlay = () => {
+      overlayMap.jumpTo({
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      })
+    }
+
+    map.on("move", syncOverlay)
+
+    // Controls on main map only
+    map.addControl(new mapboxgl.NavigationControl(), "bottom-right")
+    map.addControl(new mapboxgl.ScaleControl({ unit: "metric" }), "bottom-left")
 
     map.on("zoom", () => {
       onZoomChange(map.getZoom())
@@ -113,7 +139,6 @@ export function MapView({ onZoomChange }: MapViewProps) {
     onZoomChange(CONFIG.defaultZoom)
 
     map.on("load", () => {
-      addKartverketLayers(map)
       addUserPlotLayer(map)
     })
 
@@ -135,16 +160,19 @@ export function MapView({ onZoomChange }: MapViewProps) {
           })
         },
         () => {
-          // Silent fail — use default center
+          // Silent fail
         }
       )
     }
 
     return () => {
+      map.off("move", syncOverlay)
+      overlayMap.remove()
+      overlayMapRef.current = null
       map.remove()
       mapRef.current = null
     }
-  }, [onZoomChange, addKartverketLayers, addUserPlotLayer])
+  }, [onZoomChange, addUserPlotLayer])
 
   if (!hasValidToken()) {
     return (
@@ -160,9 +188,13 @@ export function MapView({ onZoomChange }: MapViewProps) {
   }
 
   return (
-    <div
-      ref={mapContainerRef}
-      className="absolute inset-0"
-    />
+    <>
+      <div ref={mapContainerRef} className="absolute inset-0" />
+      <div
+        ref={overlayContainerRef}
+        className="absolute inset-0 pointer-events-none"
+        style={{ mixBlendMode: "screen" }}
+      />
+    </>
   )
 }
