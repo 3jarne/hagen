@@ -1,4 +1,4 @@
-import { MousePointer2, Pen, Square, Circle, Type } from "lucide-react"
+import { MousePointer2, Square, Circle, Type } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import {
   Tooltip,
@@ -12,7 +12,11 @@ export type Tool = "select" | "polygon" | "rectangle" | "circle" | "text"
 
 const tools: { value: Tool; icon: (active: boolean) => React.ReactNode; label: string; shortcut: string }[] = [
   { value: "select", icon: (a) => <MousePointer2 className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Select / Move", shortcut: "V" },
-  { value: "polygon", icon: (a) => <Pen className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Polygon", shortcut: "P" },
+  { value: "polygon", icon: (a) => (
+    <svg className={cn("h-5 w-5", a && "stroke-[2.5]")} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={a ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 3 L19 6 L21 15 L14 21 L4 17 Z" />
+    </svg>
+  ), label: "Shape", shortcut: "P" },
   { value: "rectangle", icon: (a) => <Square className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Rectangle", shortcut: "R" },
   { value: "circle", icon: (a) => <Circle className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Circle", shortcut: "C" },
   { value: "text", icon: (a) => <Type className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Text label", shortcut: "T" },

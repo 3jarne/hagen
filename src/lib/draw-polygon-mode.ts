@@ -108,75 +108,23 @@ const DrawPolygonMode = {
     geojson: Feature,
     display: (f: Feature) => void
   ) {
-    const isActivePolygon =
-      geojson.properties!.id === state.polygon.id
+    const showClose =
+      state.nearFirstVertex && state.currentVertexPosition >= 3
 
-    if (!isActivePolygon) {
-      geojson.properties!.active = "false"
-      return display(geojson)
+    // Wrap display to tag the first vertex with close_indicator
+    const wrappedDisplay = (f: Feature) => {
+      if (
+        showClose &&
+        f.properties?.meta === "vertex" &&
+        f.properties?.coord_path === "0.0" &&
+        f.properties?.parent === state.polygon.id
+      ) {
+        f.properties.close_indicator = "true"
+      }
+      display(f)
     }
 
-    geojson.properties!.active = "true"
-
-    // Don't render until we have at least 3 coordinates
-    if (
-      !geojson.geometry ||
-      geojson.geometry.type !== "Polygon" ||
-      geojson.geometry.coordinates.length === 0
-    )
-      return
-
-    const ring = geojson.geometry.coordinates[0]
-    const coordinateCount = ring.length
-    if (coordinateCount < 3) return
-
-    // First vertex — highlight when cursor is near (close indicator)
-    const firstVertexProps: Record<string, unknown> = {
-      meta: "vertex",
-      parent: state.polygon.id,
-      coord_path: "0.0",
-      active: "false",
-    }
-    if (state.nearFirstVertex && state.currentVertexPosition >= 3) {
-      firstVertexProps.close_indicator = "true"
-    }
-    display({
-      type: "Feature",
-      properties: firstVertexProps,
-      geometry: { type: "Point", coordinates: ring[0] },
-    })
-
-    // Last placed vertex
-    if (coordinateCount > 3) {
-      const endPos = coordinateCount - 3
-      display({
-        type: "Feature",
-        properties: {
-          meta: "vertex",
-          parent: state.polygon.id,
-          coord_path: `0.${endPos}`,
-          active: "false",
-        },
-        geometry: { type: "Point", coordinates: ring[endPos] },
-      })
-    }
-
-    // Always render as LineString during drawing (no fill preview)
-    // The line goes through all placed points + cursor position
-    const lineCoords = ring.slice(0, coordinateCount - 1) // exclude closing duplicate
-    if (lineCoords.length >= 2) {
-      display({
-        type: "Feature",
-        properties: {
-          ...geojson.properties,
-          meta: "feature",
-        },
-        geometry: {
-          type: "LineString",
-          coordinates: lineCoords,
-        },
-      })
-    }
+    basePolygon.toDisplayFeatures.call(this, state, geojson, wrappedDisplay)
   },
 }
 

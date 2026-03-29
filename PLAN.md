@@ -35,6 +35,12 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 - **Circle edit handles**: Show only 4 cardinal handles (N/S/E/W) instead of all 64 polygon vertices
 - Target: Phase 7 (Polish) or post-v1
 
+## Pen/Line Tool — Planned
+
+- **Pen tool**: Freeform line drawing tool (open paths, not closed shapes)
+- Could be used for paths, borders, annotations
+- Target: post-v1
+
 ---
 
 ## Phase 1 — Foundation and Layout Skeleton (COMPLETE)
