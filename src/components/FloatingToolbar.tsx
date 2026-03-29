@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { MousePointer2, Pentagon, Square, Circle, Type } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -51,9 +50,12 @@ function ToolButton({
   )
 }
 
-export function FloatingToolbar() {
-  const [activeTool, setActiveTool] = useState<Tool>("select")
+interface FloatingToolbarProps {
+  activeTool: Tool
+  onToolChange: (tool: Tool) => void
+}
 
+export function FloatingToolbar({ activeTool, onToolChange }: FloatingToolbarProps) {
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
       <TooltipProvider delayDuration={300}>
@@ -62,7 +64,7 @@ export function FloatingToolbar() {
           <ToolButton
             tool={tools[0]}
             isActive={activeTool === "select"}
-            onClick={() => setActiveTool("select")}
+            onClick={() => onToolChange("select")}
           />
 
           <Separator orientation="vertical" className="mx-1.5 h-6" />
@@ -73,7 +75,7 @@ export function FloatingToolbar() {
               key={tool.value}
               tool={tool}
               isActive={activeTool === tool.value}
-              onClick={() => setActiveTool(tool.value)}
+              onClick={() => onToolChange(tool.value)}
             />
           ))}
 
@@ -83,7 +85,7 @@ export function FloatingToolbar() {
           <ToolButton
             tool={tools[4]}
             isActive={activeTool === "text"}
-            onClick={() => setActiveTool("text")}
+            onClick={() => onToolChange("text")}
           />
         </div>
       </TooltipProvider>

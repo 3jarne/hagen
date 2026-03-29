@@ -16,9 +16,20 @@ import {
 interface TopBarProps {
   zoomLevel: number
   onOpenSettings: () => void
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
 }
 
-export function TopBar({ zoomLevel, onOpenSettings }: TopBarProps) {
+export function TopBar({
+  zoomLevel,
+  onOpenSettings,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+}: TopBarProps) {
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex items-center h-10 border-b bg-background">
       <Menubar className="border-none rounded-none h-full shadow-none">
@@ -33,10 +44,10 @@ export function TopBar({ zoomLevel, onOpenSettings }: TopBarProps) {
         <MenubarMenu>
           <MenubarTrigger>Edit</MenubarTrigger>
           <MenubarContent>
-            <MenubarItem disabled>
+            <MenubarItem disabled={!canUndo} onClick={onUndo}>
               Undo <MenubarShortcut>⌘Z</MenubarShortcut>
             </MenubarItem>
-            <MenubarItem disabled>
+            <MenubarItem disabled={!canRedo} onClick={onRedo}>
               Redo <MenubarShortcut>⌘⇧Z</MenubarShortcut>
             </MenubarItem>
             <MenubarSeparator />
@@ -81,10 +92,22 @@ export function TopBar({ zoomLevel, onOpenSettings }: TopBarProps) {
 
       {/* Undo/Redo buttons */}
       <div className="flex items-center gap-0.5 ml-1">
-        <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          disabled={!canUndo}
+          onClick={onUndo}
+        >
           <Undo2 className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          disabled={!canRedo}
+          onClick={onRedo}
+        >
           <Redo2 className="h-4 w-4" />
         </Button>
       </div>
