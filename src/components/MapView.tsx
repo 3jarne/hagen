@@ -17,7 +17,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
       map.addSource("kartverket-topo", {
         type: "raster",
         tiles: [
-          "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
+          "https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png",
         ],
         tileSize: 256,
         minzoom: 14,
@@ -28,7 +28,10 @@ export function MapView({ onZoomChange }: MapViewProps) {
         type: "raster",
         source: "kartverket-topo",
         paint: {
-          "raster-opacity": 0.6,
+          "raster-opacity": 0.45,
+          "raster-contrast": 0.8,
+          "raster-brightness-min": 0.3,
+          "raster-saturation": -1,
         },
       })
     }
