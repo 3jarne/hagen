@@ -1,23 +1,16 @@
 import type { Feature, Polygon, Position } from "geojson"
-import { distanceMeters, formatDistance, formatArea } from "@/lib/measurement"
+import { distanceMeters, centroid, formatDistance, formatArea } from "@/lib/measurement"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Ctx = any
 
 interface State {
   rectangle: Ctx
-  firstPoint: Position | null
+  startPoint: Position | null
+  isDragging: boolean
 }
 
-const DrawRectangleMode: {
-  onSetup: (this: Ctx) => State
-  onClick: (this: Ctx, state: State, e: Ctx) => void
-  onMouseMove: (this: Ctx, state: State, e: Ctx) => void
-  onKeyUp: (this: Ctx, state: State, e: { key: string }) => void
-  toDisplayFeatures: (this: Ctx, state: State, geojson: Feature, display: (f: Feature) => void) => void
-  onStop: (this: Ctx) => void
-  onTrash: (this: Ctx, state: State) => void
-} = {
+const DrawRectangleMode = {
   onSetup(this: Ctx): State {
     const rectangle = this.newFeature({
       type: "Feature",
@@ -32,38 +25,73 @@ const DrawRectangleMode: {
       combineFeatures: false,
       uncombineFeatures: false,
     })
-    return { rectangle, firstPoint: null }
+    return { rectangle, startPoint: null, isDragging: false }
   },
 
-  onClick(this: Ctx, state: State, e: Ctx) {
-    if (!state.firstPoint) {
-      state.firstPoint = [e.lngLat.lng, e.lngLat.lat]
-    } else {
-      // Complete rectangle
-      this.map.fire("draw.measurement.clear", {})
-      this.map.fire("draw.create", {
-        features: [state.rectangle.toGeoJSON()],
-      })
-      this.changeMode("simple_select")
-    }
+  onMouseDown(this: Ctx, state: State, e: Ctx) {
+    state.startPoint = [e.lngLat.lng, e.lngLat.lat]
+    state.isDragging = true
   },
 
   onMouseMove(this: Ctx, state: State, e: Ctx) {
-    if (!state.firstPoint) return
-    const start = state.firstPoint
+    if (!state.isDragging || !state.startPoint) return
+    const start = state.startPoint
     const end: Position = [e.lngLat.lng, e.lngLat.lat]
-    state.rectangle.setCoordinates([
-      [start, [end[0], start[1]], end, [start[0], end[1]], start],
-    ])
-    // Calculate and fire measurement
+    const ring: Position[] = [
+      start,
+      [end[0], start[1]],
+      end,
+      [start[0], end[1]],
+      start,
+    ]
+    state.rectangle.setCoordinates([ring])
+
+    // Measurements
     const width = distanceMeters(start, [end[0], start[1]])
     const height = distanceMeters(start, [start[0], end[1]])
     const area = width * height
+
+    // Segment label at midpoint of the edge closest to cursor
+    const midTop: Position = [(start[0] + end[0]) / 2, start[1]]
     this.map.fire("draw.measurement", {
-      text: `${formatDistance(width)} × ${formatDistance(height)}\n${formatArea(area)}`,
-      lngLat: e.lngLat,
+      text: `${formatDistance(width)} × ${formatDistance(height)}`,
+      lngLat: { lng: midTop[0], lat: midTop[1] },
+    })
+
+    // Area at centroid
+    const center = centroid(ring)
+    this.map.fire("draw.measurement.area", {
+      text: formatArea(area),
+      centroid: center,
     })
   },
+
+  onMouseUp(this: Ctx, state: State) {
+    if (!state.isDragging || !state.startPoint) return
+    state.isDragging = false
+
+    const coords = state.rectangle.getCoordinates()
+    if (coords[0] && coords[0].length >= 5) {
+      // Check minimum size
+      const ring = coords[0] as Position[]
+      const w = distanceMeters(ring[0], ring[1])
+      const h = distanceMeters(ring[0], ring[3])
+      if (w > 0.5 && h > 0.5) {
+        this.map.fire("draw.measurement.clear", {})
+        this.changeMode("simple_select", {
+          featureIds: [state.rectangle.id],
+        })
+        return
+      }
+    }
+    // Too small — reset for another attempt
+    state.startPoint = null
+    state.rectangle.setCoordinates([[]])
+    this.map.fire("draw.measurement.clear", {})
+  },
+
+  // Ignore clicks — we use mousedown/up
+  onClick() {},
 
   onKeyUp(this: Ctx, state: State, e: { key: string }) {
     if (e.key === "Escape") {

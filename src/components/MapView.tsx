@@ -8,14 +8,9 @@ import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 import { drawStyles } from "@/lib/draw-styles"
 import DrawCircleMode from "@/lib/draw-circle-mode"
 import DrawRectangleMode from "@/lib/draw-rectangle-mode"
+import DrawPolygonMode from "@/lib/draw-polygon-mode"
 import { UndoRedoHistory, type Snapshot } from "@/lib/history"
-import {
-  distanceMeters,
-  polygonAreaSqm,
-  centroid,
-  formatDistance,
-  formatArea,
-} from "@/lib/measurement"
+import { polygonAreaSqm, centroid, formatArea } from "@/lib/measurement"
 import type { Tool } from "@/components/FloatingToolbar"
 import type { Position, Feature, Polygon } from "geojson"
 
@@ -50,6 +45,8 @@ export function MapView({
   const historyRef = useRef<UndoRedoHistory | null>(null)
   const activeToolRef = useRef<Tool>(activeTool)
   const popupRef = useRef<mapboxgl.Popup | null>(null)
+  // Track whether tool change came from user (toolbar/keyboard) vs mode auto-switch
+  const suppressModeSync = useRef(false)
 
   useEffect(() => {
     activeToolRef.current = activeTool
@@ -83,9 +80,12 @@ export function MapView({
     }
   }, [])
 
-  /** Build a GeoJSON FeatureCollection of area labels from draw features */
+  /** Build area label GeoJSON from completed draw features, with optional extra label */
   const buildAreaLabels = useCallback(
-    (draw: MapboxDraw): GeoJSON.FeatureCollection => {
+    (
+      draw: MapboxDraw,
+      extra?: { coords: Position; text: string }
+    ): GeoJSON.FeatureCollection => {
       const features = draw.getAll().features
       const labels: Feature[] = []
       for (const f of features) {
@@ -93,11 +93,19 @@ export function MapView({
         const ring = (f.geometry as Polygon).coordinates[0]
         if (!ring || ring.length < 4) continue
         const area = polygonAreaSqm(ring)
+        if (area < 0.1) continue
         const center = centroid(ring)
         labels.push({
           type: "Feature",
           geometry: { type: "Point", coordinates: center },
           properties: { label: formatArea(area) },
+        })
+      }
+      if (extra) {
+        labels.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: extra.coords },
+          properties: { label: extra.text },
         })
       }
       return { type: "FeatureCollection", features: labels }
@@ -106,25 +114,32 @@ export function MapView({
   )
 
   const updateAreaLabels = useCallback(
-    (map: mapboxgl.Map, draw: MapboxDraw) => {
+    (
+      map: mapboxgl.Map,
+      draw: MapboxDraw,
+      extra?: { coords: Position; text: string }
+    ) => {
       const source = map.getSource("area-labels") as mapboxgl.GeoJSONSource
       if (source) {
-        source.setData(buildAreaLabels(draw))
+        source.setData(buildAreaLabels(draw, extra))
       }
     },
     [buildAreaLabels]
   )
 
-  const restoreSnapshot = useCallback((snapshot: Snapshot) => {
-    const draw = drawRef.current
-    const map = mapRef.current
-    if (!draw || !map) return
-    draw.deleteAll()
-    for (const feature of snapshot.drawFeatures) {
-      draw.add(feature)
-    }
-    updateAreaLabels(map, draw)
-  }, [updateAreaLabels])
+  const restoreSnapshot = useCallback(
+    (snapshot: Snapshot) => {
+      const draw = drawRef.current
+      const map = mapRef.current
+      if (!draw || !map) return
+      draw.deleteAll()
+      for (const feature of snapshot.drawFeatures) {
+        draw.add(feature)
+      }
+      updateAreaLabels(map, draw)
+    },
+    [updateAreaLabels]
+  )
 
   const handleUndo = useCallback(() => {
     const history = historyRef.current
@@ -161,12 +176,12 @@ export function MapView({
     })
     mapRef.current = map
 
-    // Initialize mapbox-gl-draw
     const draw = new MapboxDraw({
       displayControlsDefault: false,
       styles: drawStyles,
       modes: {
         ...MapboxDraw.modes,
+        draw_polygon: DrawPolygonMode,
         draw_rectangle: DrawRectangleMode,
         draw_circle: DrawCircleMode,
       },
@@ -174,28 +189,30 @@ export function MapView({
     map.addControl(draw as unknown as mapboxgl.IControl)
     drawRef.current = draw
 
-    // Undo/redo history
     const history = new UndoRedoHistory(onUndoRedoChange)
     historyRef.current = history
 
-    // Measurement popup
+    // Measurement popup (for segment/dimension labels near edges)
     const popup = new mapboxgl.Popup({
       closeButton: false,
       closeOnClick: false,
       className: "measurement-popup",
-      offset: [15, 0],
+      offset: [0, -10],
     })
     popupRef.current = popup
 
     // Controls
     map.addControl(new mapboxgl.NavigationControl(), "bottom-right")
-    map.addControl(new mapboxgl.ScaleControl({ unit: "metric" }), "bottom-left")
+    map.addControl(
+      new mapboxgl.ScaleControl({ unit: "metric" }),
+      "bottom-left"
+    )
 
     map.on("zoom", () => onZoomChange(map.getZoom()))
     onZoomChange(CONFIG.defaultZoom)
 
     map.on("load", () => {
-      // Kartverket topo as a raster layer on the main map (below draw layers)
+      // Kartverket topo below draw layers
       map.addSource("kartverket-topo", {
         type: "raster",
         tiles: [
@@ -205,8 +222,6 @@ export function MapView({
         minzoom: 14,
         maxzoom: 18,
       })
-
-      // Insert Kartverket below draw layers
       const layers = map.getStyle().layers || []
       const firstDrawLayer = layers.find((l) => l.id.startsWith("gl-draw-"))
       map.addLayer(
@@ -219,10 +234,9 @@ export function MapView({
         firstDrawLayer?.id
       )
 
-      // User plot
       addUserPlotLayer(map)
 
-      // Area labels source + layer (on top of everything)
+      // Area labels layer (on top of everything)
       map.addSource("area-labels", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -244,11 +258,10 @@ export function MapView({
         },
       })
 
-      // Initial history state
       history.push({ drawFeatures: [], textFeatures: [] })
     })
 
-    // Draw events — apply defaults and save to history
+    // Draw events
     map.on("draw.create", (e: { features: GeoJSON.Feature[] }) => {
       for (const feature of e.features) {
         const id = feature.id as string
@@ -258,83 +271,57 @@ export function MapView({
         draw.setFeatureProperty(id, "user_strokeWidth", ZONE_DEFAULTS.strokeWidth)
         draw.setFeatureProperty(id, "user_zone", ZONE_DEFAULTS.zone)
       }
-      draw.set(draw.getAll()) // Force style refresh
+      draw.set(draw.getAll())
       updateAreaLabels(map, draw)
-      history.push({
-        drawFeatures: draw.getAll().features,
-        textFeatures: [],
-      })
+      history.push({ drawFeatures: draw.getAll().features, textFeatures: [] })
     })
 
     map.on("draw.update", () => {
       updateAreaLabels(map, draw)
-      history.push({
-        drawFeatures: draw.getAll().features,
-        textFeatures: [],
-      })
+      history.push({ drawFeatures: draw.getAll().features, textFeatures: [] })
     })
 
     map.on("draw.delete", () => {
       updateAreaLabels(map, draw)
-      history.push({
-        drawFeatures: draw.getAll().features,
-        textFeatures: [],
-      })
+      history.push({ drawFeatures: draw.getAll().features, textFeatures: [] })
     })
 
-    // Measurement events from rectangle/circle modes
-    map.on("draw.measurement" as string, (e: { text: string; lngLat: mapboxgl.LngLat }) => {
+    // When draw mode changes to simple_select (after completing a shape),
+    // auto-switch tool to select
+    map.on("draw.modechange", (e: { mode: string }) => {
+      if (suppressModeSync.current) return
+      if (e.mode === "simple_select" && activeToolRef.current !== "select") {
+        onToolChange("select")
+      }
+    })
+
+    // Hide area labels while features are being moved (selection active)
+    map.on("draw.selectionchange", (e: { features: GeoJSON.Feature[] }) => {
+      if (map.getLayer("area-labels")) {
+        map.setLayoutProperty(
+          "area-labels",
+          "visibility",
+          e.features.length > 0 ? "none" : "visible"
+        )
+      }
+    })
+
+    // Measurement events from draw modes
+    map.on("draw.measurement" as string, (e: { text: string; lngLat: { lng: number; lat: number } }) => {
       popup
-        .setLngLat(e.lngLat)
-        .setHTML(`<div class="measurement-text">${e.text.replace("\n", "<br>")}</div>`)
+        .setLngLat([e.lngLat.lng, e.lngLat.lat])
+        .setHTML(`<div class="measurement-text">${e.text}</div>`)
         .addTo(map)
+    })
+
+    map.on("draw.measurement.area" as string, (e: { text: string; centroid: Position }) => {
+      updateAreaLabels(map, draw, { coords: e.centroid, text: e.text })
     })
 
     map.on("draw.measurement.clear" as string, () => {
       popup.remove()
-    })
-
-    // Polygon measurement on mousemove (built-in draw_polygon mode)
-    map.on("mousemove", (e: mapboxgl.MapMouseEvent) => {
-      const mode = draw.getMode()
-      if (mode !== "draw_polygon") return
-
-      const features = draw.getAll().features
-      if (features.length === 0) return
-
-      // The last feature is the one being drawn
-      const current = features[features.length - 1]
-      if (current.geometry.type !== "Polygon") return
-
-      const ring = (current.geometry as Polygon).coordinates[0]
-      if (!ring || ring.length < 2) {
-        popup.remove()
-        return
-      }
-
-      const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
-      const lastPlaced = ring[ring.length - 2] // last confirmed point (ring closes back to first)
-
-      let text = ""
-      if (lastPlaced) {
-        const d = distanceMeters(lastPlaced, cursor)
-        text = formatDistance(d)
-      }
-
-      // If 3+ unique points, also show projected area
-      if (ring.length >= 4) {
-        // Build a closed ring with cursor to calculate area
-        const tempRing = [...ring.slice(0, ring.length - 1), cursor, ring[0]]
-        const area = polygonAreaSqm(tempRing)
-        text += `\n${formatArea(area)}`
-      }
-
-      if (text) {
-        popup
-          .setLngLat(e.lngLat)
-          .setHTML(`<div class="measurement-text">${text.replace("\n", "<br>")}</div>`)
-          .addTo(map)
-      }
+      // Remove temporary area label — rebuild with only completed shapes
+      updateAreaLabels(map, draw)
     })
 
     // GPS geolocation
@@ -364,7 +351,7 @@ export function MapView({
       map.remove()
       mapRef.current = null
     }
-  }, [onZoomChange, onUndoRedoChange, addUserPlotLayer, updateAreaLabels])
+  }, [onZoomChange, onUndoRedoChange, onToolChange, addUserPlotLayer, updateAreaLabels])
 
   // Sync active tool to draw mode + manage dragPan
   useEffect(() => {
@@ -377,9 +364,10 @@ export function MapView({
       activeTool === "rectangle" ||
       activeTool === "circle"
 
-    // Clear measurement popup when switching tools
     popupRef.current?.remove()
 
+    // Suppress mode sync to prevent feedback loop
+    suppressModeSync.current = true
     switch (activeTool) {
       case "select":
         draw.changeMode("simple_select")
@@ -402,6 +390,10 @@ export function MapView({
         map.dragPan.enable()
         break
     }
+    // Re-enable mode sync after a tick
+    requestAnimationFrame(() => {
+      suppressModeSync.current = false
+    })
 
     return () => {
       if (isDrawTool && map.dragPan) {
@@ -416,7 +408,6 @@ export function MapView({
       const tag = (e.target as HTMLElement).tagName
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
 
-      // Tool shortcuts
       if (!e.metaKey && !e.ctrlKey && !e.altKey) {
         switch (e.key.toLowerCase()) {
           case "v":
@@ -457,14 +448,11 @@ export function MapView({
         }
       }
 
-      // Undo: Cmd+Z / Ctrl+Z
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "z") {
         e.preventDefault()
         handleUndo()
         return
       }
-
-      // Redo: Cmd+Shift+Z / Ctrl+Shift+Z
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "z") {
         e.preventDefault()
         handleRedo()
