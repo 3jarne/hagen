@@ -59,6 +59,10 @@ export function MapView({
   const selectedTextIdsRef = useRef<Set<string>>(new Set())
   const textInputRef = useRef<HTMLInputElement | null>(null)
   const editingTextIdRef = useRef<string | null>(null)
+  const draggingTextRef = useRef<{
+    id: string
+    startLngLat: { lng: number; lat: number }
+  } | null>(null)
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -99,13 +103,15 @@ export function MapView({
   const syncTextLabels = useCallback((map: mapboxgl.Map) => {
     const source = map.getSource("text-labels") as mapboxgl.GeoJSONSource
     if (!source) return
-    const features = textFeaturesRef.current.map((f) => ({
-      ...f,
-      properties: {
-        ...f.properties,
-        selected: selectedTextIdsRef.current.has(f.properties!.id),
-      },
-    }))
+    const features = textFeaturesRef.current
+      .filter((f) => f.properties!.id !== editingTextIdRef.current)
+      .map((f) => ({
+        ...f,
+        properties: {
+          ...f.properties,
+          selected: selectedTextIdsRef.current.has(f.properties!.id),
+        },
+      }))
     source.setData({ type: "FeatureCollection", features })
   }, [])
 
@@ -209,8 +215,14 @@ export function MapView({
       textInputRef.current.remove()
       textInputRef.current = null
     }
+    const wasEditing = editingTextIdRef.current !== null
     editingTextIdRef.current = null
-  }, [])
+    // Re-show hidden text if editing was cancelled
+    if (wasEditing) {
+      const map = mapRef.current
+      if (map) syncTextLabels(map)
+    }
+  }, [syncTextLabels])
 
   /** Show a text input overlay at a map position */
   const showTextInput = useCallback(
@@ -363,17 +375,6 @@ export function MapView({
         data: { type: "FeatureCollection", features: [] },
       })
       map.addLayer({
-        id: "text-labels-selected",
-        type: "circle",
-        source: "text-labels",
-        filter: ["==", ["get", "selected"], true],
-        paint: {
-          "circle-radius": 14,
-          "circle-color": "#3b82f6",
-          "circle-opacity": 0.3,
-        },
-      })
-      map.addLayer({
         id: "text-labels",
         type: "symbol",
         source: "text-labels",
@@ -384,9 +385,24 @@ export function MapView({
           "text-allow-overlap": true,
         },
         paint: {
-          "text-color": ["coalesce", ["get", "textColor"], "#ffffff"],
-          "text-halo-color": "#000000",
-          "text-halo-width": 1.5,
+          "text-color": [
+            "case",
+            ["==", ["get", "selected"], true],
+            "#93c5fd",
+            ["coalesce", ["get", "textColor"], "#ffffff"],
+          ],
+          "text-halo-color": [
+            "case",
+            ["==", ["get", "selected"], true],
+            "#1d4ed8",
+            "#000000",
+          ],
+          "text-halo-width": [
+            "case",
+            ["==", ["get", "selected"], true],
+            2.5,
+            1.5,
+          ],
         },
       })
 
@@ -565,6 +581,7 @@ export function MapView({
       if (!feature) return
 
       editingTextIdRef.current = hitId
+      syncTextLabels(map) // hide the old text while editing
       const coords = (feature.geometry as GeoJSON.Point).coordinates
       showTextInput(
         map,
@@ -576,6 +593,7 @@ export function MapView({
               ? { ...f, properties: { ...f.properties!, label: value } }
               : f
           )
+          editingTextIdRef.current = null
           syncTextLabels(map)
           history.push({
             drawFeatures: draw.getAll().features,
@@ -634,6 +652,66 @@ export function MapView({
       }
 
       setContextMenu(null)
+    })
+
+    // Text label dragging
+    map.on("mousedown", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "select") return
+      if (textInputRef.current) return
+
+      const textHits = map.queryRenderedFeatures(e.point, {
+        layers: ["text-labels"],
+      })
+      if (textHits.length === 0) return
+
+      const hitId = textHits[0].properties!.id as string
+      if (!selectedTextIdsRef.current.has(hitId)) return
+
+      e.preventDefault()
+      draggingTextRef.current = {
+        id: hitId,
+        startLngLat: e.lngLat,
+      }
+      map.getCanvas().style.cursor = "move"
+      map.dragPan.disable()
+    })
+
+    map.on("mousemove", (e: mapboxgl.MapMouseEvent) => {
+      if (!draggingTextRef.current) return
+      const dragInfo = draggingTextRef.current
+      const dLng = e.lngLat.lng - dragInfo.startLngLat.lng
+      const dLat = e.lngLat.lat - dragInfo.startLngLat.lat
+
+      // Move all selected text features
+      textFeaturesRef.current = textFeaturesRef.current.map((f) => {
+        if (!selectedTextIdsRef.current.has(f.properties!.id)) return f
+        const coords = (f.geometry as GeoJSON.Point).coordinates
+        return {
+          ...f,
+          geometry: {
+            type: "Point" as const,
+            coordinates: [coords[0] + dLng, coords[1] + dLat],
+          },
+        }
+      })
+      draggingTextRef.current = {
+        id: dragInfo.id,
+        startLngLat: e.lngLat,
+      }
+      syncTextLabels(map)
+    })
+
+    map.on("mouseup", () => {
+      if (!draggingTextRef.current) return
+      draggingTextRef.current = null
+      map.getCanvas().style.cursor = ""
+      if (activeToolRef.current === "select") {
+        map.dragPan.enable()
+      }
+      history.push({
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+      })
     })
 
     // Close context menu on map interaction
