@@ -53,11 +53,33 @@ export const drawStyles: object[] = [
       "line-width": 2,
     },
   },
+  // Close indicator vertex (first point when cursor is near)
+  {
+    id: "gl-draw-point-close",
+    type: "circle",
+    filter: [
+      "all",
+      ["==", "$type", "Point"],
+      ["==", "meta", "vertex"],
+      ["==", "close_indicator", "true"],
+    ],
+    paint: {
+      "circle-radius": 8,
+      "circle-color": "#4ade80",
+      "circle-stroke-color": "#fff",
+      "circle-stroke-width": 2,
+    },
+  },
   // Vertex points (circles at polygon vertices)
   {
     id: "gl-draw-point",
     type: "circle",
-    filter: ["all", ["==", "$type", "Point"], ["==", "meta", "vertex"]],
+    filter: [
+      "all",
+      ["==", "$type", "Point"],
+      ["==", "meta", "vertex"],
+      ["!=", "close_indicator", "true"],
+    ],
     paint: {
       "circle-radius": 5,
       "circle-color": "#fff",
