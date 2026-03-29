@@ -1,5 +1,6 @@
 import { Undo2, Redo2, Search, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Slider } from "@/components/ui/slider"
 import {
   Menubar,
   MenubarContent,
@@ -12,6 +13,7 @@ import {
   MenubarRadioGroup,
   MenubarRadioItem,
 } from "@/components/ui/menubar"
+import type { MapStyle } from "@/App"
 
 interface TopBarProps {
   zoomLevel: number
@@ -22,6 +24,15 @@ interface TopBarProps {
   onRedo: () => void
   onExportJSON: () => void
   onExportPNG: () => void
+  mapStyle: MapStyle
+  onMapStyleChange: (style: MapStyle) => void
+  kartverketVisible: boolean
+  onKartverketVisibleChange: (visible: boolean) => void
+  kartverketOpacity: number
+  onKartverketOpacityChange: (opacity: number) => void
+  onZoomIn: () => void
+  onZoomOut: () => void
+  onResetView: () => void
 }
 
 export function TopBar({
@@ -33,6 +44,15 @@ export function TopBar({
   onRedo,
   onExportJSON,
   onExportPNG,
+  mapStyle,
+  onMapStyleChange,
+  kartverketVisible,
+  onKartverketVisibleChange,
+  kartverketOpacity,
+  onKartverketOpacityChange,
+  onZoomIn,
+  onZoomOut,
+  onResetView,
 }: TopBarProps) {
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex items-center h-10 border-b bg-background">
@@ -64,25 +84,46 @@ export function TopBar({
         <MenubarMenu>
           <MenubarTrigger>View</MenubarTrigger>
           <MenubarContent>
-            <MenubarRadioGroup value="satellite">
-              <MenubarRadioItem value="satellite" disabled>
-                Satellite
-              </MenubarRadioItem>
-              <MenubarRadioItem value="street" disabled>
-                Street
-              </MenubarRadioItem>
-              <MenubarRadioItem value="terrain" disabled>
-                Terrain
-              </MenubarRadioItem>
+            <MenubarRadioGroup
+              value={mapStyle}
+              onValueChange={(v) => onMapStyleChange(v as MapStyle)}
+            >
+              <MenubarRadioItem value="satellite">Satellite</MenubarRadioItem>
+              <MenubarRadioItem value="street">Street</MenubarRadioItem>
+              <MenubarRadioItem value="terrain">Terrain</MenubarRadioItem>
             </MenubarRadioGroup>
             <MenubarSeparator />
-            <MenubarCheckboxItem checked disabled>
+            <MenubarCheckboxItem
+              checked={kartverketVisible}
+              onCheckedChange={onKartverketVisibleChange}
+            >
               Kartverket overlay
             </MenubarCheckboxItem>
+            {kartverketVisible && (
+              <div className="px-2 py-1.5">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-muted-foreground">Opacity</span>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {Math.round(kartverketOpacity * 100)}%
+                  </span>
+                </div>
+                <Slider
+                  value={[kartverketOpacity]}
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  onValueChange={([v]) => onKartverketOpacityChange(v)}
+                />
+              </div>
+            )}
             <MenubarSeparator />
-            <MenubarItem disabled>Zoom In</MenubarItem>
-            <MenubarItem disabled>Zoom Out</MenubarItem>
-            <MenubarItem disabled>Reset to property view</MenubarItem>
+            <MenubarItem onClick={onZoomIn}>
+              Zoom In <MenubarShortcut>+</MenubarShortcut>
+            </MenubarItem>
+            <MenubarItem onClick={onZoomOut}>
+              Zoom Out <MenubarShortcut>-</MenubarShortcut>
+            </MenubarItem>
+            <MenubarItem onClick={onResetView}>Reset to property view</MenubarItem>
           </MenubarContent>
         </MenubarMenu>
 

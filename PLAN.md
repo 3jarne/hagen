@@ -19,7 +19,7 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 - [x] Phase 3 — Text tool and selection behaviour
 - [x] Phase 4 — Properties panel
 - [x] Phase 5 — Persistence and export
-- [ ] Phase 6 — View menu and map controls
+- [x] Phase 6 — View menu and map controls
 - [ ] Phase 7 — Polish and accessibility
 
 ## Kartverket Overlay — Planned Enhancements

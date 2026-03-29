@@ -14,7 +14,7 @@ import { polygonAreaSqm, centroid, formatArea } from "@/lib/measurement"
 import type { Tool } from "@/components/FloatingToolbar"
 import type { Position, Feature, Polygon } from "geojson"
 import type { ShapeProperties, TextProperties } from "@/lib/zone-defaults"
-import type { PanelMode } from "@/App"
+import type { PanelMode, MapStyle } from "@/App"
 
 const STORAGE_KEY = "hageplan-project"
 
@@ -38,6 +38,12 @@ interface MapViewProps {
   onEditingSelectionChange: (editing: boolean) => void
   exportJSONRef: React.MutableRefObject<(() => void) | null>
   exportPNGRef: React.MutableRefObject<(() => void) | null>
+  mapStyle: MapStyle
+  kartverketVisible: boolean
+  kartverketOpacity: number
+  zoomInRef: React.MutableRefObject<(() => void) | null>
+  zoomOutRef: React.MutableRefObject<(() => void) | null>
+  resetViewRef: React.MutableRefObject<(() => void) | null>
 }
 
 interface ContextMenuState {
@@ -62,6 +68,12 @@ export function MapView({
   onEditingSelectionChange,
   exportJSONRef,
   exportPNGRef,
+  mapStyle,
+  kartverketVisible,
+  kartverketOpacity,
+  zoomInRef,
+  zoomOutRef,
+  resetViewRef,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -999,6 +1011,168 @@ export function MapView({
     exportJSONRef.current = handleExportJSON
     exportPNGRef.current = handleExportPNG
   }, [handleExportJSON, handleExportPNG, exportJSONRef, exportPNGRef])
+
+  // Zoom and reset view refs
+  useEffect(() => {
+    zoomInRef.current = () => mapRef.current?.zoomIn()
+    zoomOutRef.current = () => mapRef.current?.zoomOut()
+    resetViewRef.current = () => {
+      mapRef.current?.flyTo({
+        center: CONFIG.defaultCenter,
+        zoom: CONFIG.defaultZoom,
+      })
+    }
+  }, [zoomInRef, zoomOutRef, resetViewRef])
+
+  // Map style switching
+  const MAP_STYLES: Record<MapStyle, string> = {
+    satellite: "mapbox://styles/mapbox/satellite-v9",
+    street: "mapbox://styles/mapbox/streets-v12",
+    terrain: "mapbox://styles/mapbox/outdoors-v12",
+  }
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const style = MAP_STYLES[mapStyle]
+    if (!style) return
+
+    // Save current state before style change
+    const draw = drawRef.current
+    const drawFeatures = draw ? draw.getAll().features : []
+    const textFeatures = [...textFeaturesRef.current]
+    const center = map.getCenter()
+    const zoom = map.getZoom()
+
+    map.setStyle(style)
+
+    map.once("style.load", () => {
+      // Re-add Kartverket overlay
+      if (!map.getSource("kartverket-topo")) {
+        map.addSource("kartverket-topo", {
+          type: "raster",
+          tiles: [
+            "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
+          ],
+          tileSize: 256,
+          minzoom: 14,
+          maxzoom: 18,
+        })
+      }
+      const layers = map.getStyle().layers || []
+      const firstDrawLayer = layers.find((l) => l.id.startsWith("gl-draw-"))
+      if (!map.getLayer("kartverket-topo")) {
+        map.addLayer(
+          {
+            id: "kartverket-topo",
+            type: "raster",
+            source: "kartverket-topo",
+            paint: { "raster-opacity": kartverketVisible ? kartverketOpacity : 0 },
+            layout: { visibility: kartverketVisible ? "visible" : "none" },
+          },
+          firstDrawLayer?.id
+        )
+      }
+
+      // Re-add area labels
+      if (!map.getSource("area-labels")) {
+        map.addSource("area-labels", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        })
+        map.addLayer({
+          id: "area-labels",
+          type: "symbol",
+          source: "area-labels",
+          layout: {
+            "text-field": ["get", "label"],
+            "text-size": 13,
+            "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+            "text-allow-overlap": true,
+          },
+          paint: {
+            "text-color": "#ffffff",
+            "text-halo-color": "#000000",
+            "text-halo-width": 1.5,
+          },
+        })
+      }
+
+      // Re-add text labels
+      if (!map.getSource("text-labels")) {
+        map.addSource("text-labels", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        })
+        map.addLayer({
+          id: "text-labels",
+          type: "symbol",
+          source: "text-labels",
+          layout: {
+            "text-field": ["get", "label"],
+            "text-size": ["coalesce", ["get", "fontSize"], 16],
+            "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+            "text-allow-overlap": true,
+          },
+          paint: {
+            "text-color": [
+              "case",
+              ["==", ["get", "selected"], true],
+              "#93c5fd",
+              ["coalesce", ["get", "textColor"], "#ffffff"],
+            ],
+            "text-halo-color": [
+              "case",
+              ["==", ["get", "selected"], true],
+              "#1d4ed8",
+              "#000000",
+            ],
+            "text-halo-width": [
+              "case",
+              ["==", ["get", "selected"], true],
+              2.5,
+              1.5,
+            ],
+          },
+        })
+      }
+
+      // Restore user plot layer
+      addUserPlotLayer(map)
+
+      // Restore draw features
+      if (draw) {
+        for (const feature of drawFeatures) {
+          draw.add(feature)
+        }
+      }
+
+      // Restore text features
+      textFeaturesRef.current = textFeatures
+      syncTextLabels(map)
+      if (draw) updateAreaLabels(map, draw)
+
+      // Restore view
+      map.setCenter(center)
+      map.setZoom(zoom)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapStyle])
+
+  // Kartverket overlay visibility and opacity
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!map.getLayer("kartverket-topo")) return
+    map.setLayoutProperty(
+      "kartverket-topo",
+      "visibility",
+      kartverketVisible ? "visible" : "none"
+    )
+    if (kartverketVisible) {
+      map.setPaintProperty("kartverket-topo", "raster-opacity", kartverketOpacity)
+    }
+  }, [kartverketVisible, kartverketOpacity])
 
   // Context menu actions
   const handleContextDelete = useCallback(() => {

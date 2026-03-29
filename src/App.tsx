@@ -15,6 +15,7 @@ import {
 } from "@/lib/zone-defaults"
 
 export type PanelMode = "shape" | "text" | "none"
+export type MapStyle = "satellite" | "street" | "terrain"
 
 function App() {
   const [zoomLevel, setZoomLevel] = useState(CONFIG.defaultZoom)
@@ -26,6 +27,14 @@ function App() {
   const redoRef = useRef<(() => void) | null>(null)
   const exportJSONRef = useRef<(() => void) | null>(null)
   const exportPNGRef = useRef<(() => void) | null>(null)
+  const zoomInRef = useRef<(() => void) | null>(null)
+  const zoomOutRef = useRef<(() => void) | null>(null)
+  const resetViewRef = useRef<(() => void) | null>(null)
+
+  // View menu state
+  const [mapStyle, setMapStyle] = useState<MapStyle>("satellite")
+  const [kartverketVisible, setKartverketVisible] = useState(true)
+  const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
 
   // Properties panel state
   const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
@@ -113,6 +122,15 @@ function App() {
         onRedo={handleRedo}
         onExportJSON={handleExportJSON}
         onExportPNG={handleExportPNG}
+        mapStyle={mapStyle}
+        onMapStyleChange={setMapStyle}
+        kartverketVisible={kartverketVisible}
+        onKartverketVisibleChange={setKartverketVisible}
+        kartverketOpacity={kartverketOpacity}
+        onKartverketOpacityChange={setKartverketOpacity}
+        onZoomIn={() => zoomInRef.current?.()}
+        onZoomOut={() => zoomOutRef.current?.()}
+        onResetView={() => resetViewRef.current?.()}
       />
       <MapView
         onZoomChange={handleZoomChange}
@@ -129,6 +147,12 @@ function App() {
         onEditingSelectionChange={setIsEditingSelection}
         exportJSONRef={exportJSONRef}
         exportPNGRef={exportPNGRef}
+        mapStyle={mapStyle}
+        kartverketVisible={kartverketVisible}
+        kartverketOpacity={kartverketOpacity}
+        zoomInRef={zoomInRef}
+        zoomOutRef={zoomOutRef}
+        resetViewRef={resetViewRef}
       />
       <FloatingToolbar activeTool={activeTool} onToolChange={handleToolChange} />
       <PropertiesPanel
