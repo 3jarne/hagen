@@ -42,47 +42,21 @@ const DrawCircleMode = {
     })
 
     const mode = this
-    const state: {
-      polygon: Ctx
-      center: Position | null
-      isDragging: boolean
-      _down: ((e: Ctx) => void) | null
-      _move: ((e: Ctx) => void) | null
-      _up: (() => void) | null
-    } = {
+    const state: Ctx = {
       polygon,
-      center: null,
+      center: null as Position | null,
       isDragging: false,
-      _down: null,
-      _move: null,
-      _up: null,
+      _down: null as ((e: Ctx) => void) | null,
+      _up: null as (() => void) | null,
     }
 
+    // Raw mousedown
     state._down = (e: Ctx) => {
       state.center = [e.lngLat.lng, e.lngLat.lat]
       state.isDragging = true
     }
 
-    state._move = (e: Ctx) => {
-      if (!state.isDragging || !state.center) return
-      const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
-      const radiusM = distanceMeters(state.center, cursor)
-      const radiusKm = radiusM / 1000
-      if (radiusKm > 0) {
-        const coords = createCirclePolygon(state.center, radiusKm)
-        state.polygon.setCoordinates([coords])
-      }
-      mode.map.fire("draw.measurement", {
-        text: `r = ${formatDistance(radiusM)}`,
-        lngLat: e.lngLat,
-      })
-      const area = Math.PI * radiusM * radiusM
-      mode.map.fire("draw.measurement.area", {
-        text: formatArea(area),
-        centroid: state.center,
-      })
-    }
-
+    // Raw mouseup
     state._up = () => {
       if (!state.isDragging || !state.center) return
       state.isDragging = false
@@ -99,18 +73,30 @@ const DrawCircleMode = {
     }
 
     this.map.on("mousedown", state._down)
-    this.map.on("mousemove", state._move)
     this.map.on("mouseup", state._up)
 
     return state
   },
 
-  onStop(this: Ctx, state: Ctx) {
-    if (state._down) this.map.off("mousedown", state._down)
-    if (state._move) this.map.off("mousemove", state._move)
-    if (state._up) this.map.off("mouseup", state._up)
-    this.map.fire("draw.measurement.clear", {})
-    this.updateUIClasses({ mouse: "none" })
+  // Use draw's onMouseMove — triggers render cycle so circle preview is visible
+  onMouseMove(this: Ctx, state: Ctx, e: Ctx) {
+    if (!state.isDragging || !state.center) return
+    const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
+    const radiusM = distanceMeters(state.center, cursor)
+    const radiusKm = radiusM / 1000
+    if (radiusKm > 0) {
+      const coords = createCirclePolygon(state.center, radiusKm)
+      state.polygon.setCoordinates([coords])
+    }
+    this.map.fire("draw.measurement", {
+      text: `r = ${formatDistance(radiusM)}`,
+      lngLat: e.lngLat,
+    })
+    const area = Math.PI * radiusM * radiusM
+    this.map.fire("draw.measurement.area", {
+      text: formatArea(area),
+      centroid: state.center,
+    })
   },
 
   onClick() {},
@@ -131,6 +117,13 @@ const DrawCircleMode = {
   ) {
     void _state
     display(geojson)
+  },
+
+  onStop(this: Ctx, state: Ctx) {
+    if (state._down) this.map.off("mousedown", state._down)
+    if (state._up) this.map.off("mouseup", state._up)
+    this.map.fire("draw.measurement.clear", {})
+    this.updateUIClasses({ mouse: "none" })
   },
 
   onTrash(this: Ctx, state: Ctx) {

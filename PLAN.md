@@ -28,6 +28,13 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 - **Opacity slider**: Add a slider (in View menu or settings) to adjust overlay translucency (0–100%)
 - Target: Phase 6 (View menu wiring)
 
+## Shape Editing — Planned Enhancements
+
+- **Rotation**: Add rotation handles when a shape is selected (rotate around centroid)
+- **Scaling**: Add scale handles (corner/edge drag to resize) when a shape is selected
+- **Circle edit handles**: Show only 4 cardinal handles (N/S/E/W) instead of all 64 polygon vertices
+- Target: Phase 7 (Polish) or post-v1
+
 ---
 
 ## Phase 1 — Foundation and Layout Skeleton (COMPLETE)

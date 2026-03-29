@@ -21,55 +21,21 @@ const DrawRectangleMode = {
     })
 
     const mode = this
-    const state: {
-      rectangle: Ctx
-      startPoint: Position | null
-      isDragging: boolean
-      _down: ((e: Ctx) => void) | null
-      _move: ((e: Ctx) => void) | null
-      _up: (() => void) | null
-    } = {
+    const state: Ctx = {
       rectangle,
-      startPoint: null,
+      startPoint: null as Position | null,
       isDragging: false,
-      _down: null,
-      _move: null,
-      _up: null,
+      _down: null as ((e: Ctx) => void) | null,
+      _up: null as (() => void) | null,
     }
 
+    // Raw mousedown — draw's onMouseDown doesn't dispatch reliably
     state._down = (e: Ctx) => {
       state.startPoint = [e.lngLat.lng, e.lngLat.lat]
       state.isDragging = true
     }
 
-    state._move = (e: Ctx) => {
-      if (!state.isDragging || !state.startPoint) return
-      const start = state.startPoint
-      const end: Position = [e.lngLat.lng, e.lngLat.lat]
-      const ring: Position[] = [
-        start,
-        [end[0], start[1]],
-        end,
-        [start[0], end[1]],
-        start,
-      ]
-      state.rectangle.setCoordinates([ring])
-
-      const width = distanceMeters(start, [end[0], start[1]])
-      const height = distanceMeters(start, [start[0], end[1]])
-      const area = width * height
-      const midTop: Position = [(start[0] + end[0]) / 2, start[1]]
-      mode.map.fire("draw.measurement", {
-        text: `${formatDistance(width)} × ${formatDistance(height)}`,
-        lngLat: { lng: midTop[0], lat: midTop[1] },
-      })
-      const center = centroid(ring)
-      mode.map.fire("draw.measurement.area", {
-        text: formatArea(area),
-        centroid: center,
-      })
-    }
-
+    // Raw mouseup — draw's onMouseUp doesn't dispatch reliably
     state._up = () => {
       if (!state.isDragging || !state.startPoint) return
       state.isDragging = false
@@ -86,24 +52,45 @@ const DrawRectangleMode = {
           return
         }
       }
+      // Too small — reset
       state.startPoint = null
       state.rectangle.setCoordinates([[]])
       mode.map.fire("draw.measurement.clear", {})
     }
 
     this.map.on("mousedown", state._down)
-    this.map.on("mousemove", state._move)
     this.map.on("mouseup", state._up)
 
     return state
   },
 
-  onStop(this: Ctx, state: Ctx) {
-    if (state._down) this.map.off("mousedown", state._down)
-    if (state._move) this.map.off("mousemove", state._move)
-    if (state._up) this.map.off("mouseup", state._up)
-    this.map.fire("draw.measurement.clear", {})
-    this.updateUIClasses({ mouse: "none" })
+  // Use draw's onMouseMove — this triggers the render cycle so the shape is visible
+  onMouseMove(this: Ctx, state: Ctx, e: Ctx) {
+    if (!state.isDragging || !state.startPoint) return
+    const start = state.startPoint as Position
+    const end: Position = [e.lngLat.lng, e.lngLat.lat]
+    const ring: Position[] = [
+      start,
+      [end[0], start[1]],
+      end,
+      [start[0], end[1]],
+      start,
+    ]
+    state.rectangle.setCoordinates([ring])
+
+    const width = distanceMeters(start, [end[0], start[1]])
+    const height = distanceMeters(start, [start[0], end[1]])
+    const area = width * height
+    const midTop: Position = [(start[0] + end[0]) / 2, start[1]]
+    this.map.fire("draw.measurement", {
+      text: `${formatDistance(width)} × ${formatDistance(height)}`,
+      lngLat: { lng: midTop[0], lat: midTop[1] },
+    })
+    const center = centroid(ring)
+    this.map.fire("draw.measurement.area", {
+      text: formatArea(area),
+      centroid: center,
+    })
   },
 
   onClick() {},
@@ -124,6 +111,13 @@ const DrawRectangleMode = {
   ) {
     void _state
     display(geojson)
+  },
+
+  onStop(this: Ctx, state: Ctx) {
+    if (state._down) this.map.off("mousedown", state._down)
+    if (state._up) this.map.off("mouseup", state._up)
+    this.map.fire("draw.measurement.clear", {})
+    this.updateUIClasses({ mouse: "none" })
   },
 
   onTrash(this: Ctx, state: Ctx) {
