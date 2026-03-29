@@ -85,7 +85,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
           "kartverket-topo": {
             type: "raster",
             tiles: [
-              "https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png",
+              "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
             ],
             tileSize: 256,
             minzoom: 14,
