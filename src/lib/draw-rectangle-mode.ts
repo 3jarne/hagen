@@ -20,53 +20,18 @@ const DrawRectangleMode = {
       uncombineFeatures: false,
     })
 
-    const mode = this
-    const state: Ctx = {
+    return {
       rectangle,
       startPoint: null as Position | null,
-      isDragging: false,
-      _down: null as ((e: Ctx) => void) | null,
-      _up: null as (() => void) | null,
     }
-
-    // Raw mousedown — draw's onMouseDown doesn't dispatch reliably
-    state._down = (e: Ctx) => {
-      state.startPoint = [e.lngLat.lng, e.lngLat.lat]
-      state.isDragging = true
-    }
-
-    // Raw mouseup — draw's onMouseUp doesn't dispatch reliably
-    state._up = () => {
-      if (!state.isDragging || !state.startPoint) return
-      state.isDragging = false
-      const coords = state.rectangle.getCoordinates()
-      if (coords[0] && coords[0].length >= 5) {
-        const ring = coords[0] as Position[]
-        const w = distanceMeters(ring[0], ring[1])
-        const h = distanceMeters(ring[0], ring[3])
-        if (w > 0.3 && h > 0.3) {
-          mode.map.fire("draw.measurement.clear", {})
-          mode.changeMode("simple_select", {
-            featureIds: [state.rectangle.id],
-          })
-          return
-        }
-      }
-      // Too small — reset
-      state.startPoint = null
-      state.rectangle.setCoordinates([[]])
-      mode.map.fire("draw.measurement.clear", {})
-    }
-
-    this.map.on("mousedown", state._down)
-    this.map.on("mouseup", state._up)
-
-    return state
   },
 
-  // Use draw's onMouseMove — this triggers the render cycle so the shape is visible
-  onMouseMove(this: Ctx, state: Ctx, e: Ctx) {
-    if (!state.isDragging || !state.startPoint) return
+  onMouseDown(this: Ctx, state: Ctx, e: Ctx) {
+    state.startPoint = [e.lngLat.lng, e.lngLat.lat]
+  },
+
+  onDrag(this: Ctx, state: Ctx, e: Ctx) {
+    if (!state.startPoint) return
     const start = state.startPoint as Position
     const end: Position = [e.lngLat.lng, e.lngLat.lat]
     const ring: Position[] = [
@@ -76,7 +41,7 @@ const DrawRectangleMode = {
       [start[0], end[1]],
       start,
     ]
-    state.rectangle.setCoordinates([ring])
+    state.rectangle.incomingCoords([ring])
 
     const width = distanceMeters(start, [end[0], start[1]])
     const height = distanceMeters(start, [start[0], end[1]])
@@ -91,6 +56,27 @@ const DrawRectangleMode = {
       text: formatArea(area),
       centroid: center,
     })
+  },
+
+  onMouseUp(this: Ctx, state: Ctx) {
+    if (!state.startPoint) return
+    const coords = state.rectangle.getCoordinates()
+    if (coords[0] && coords[0].length >= 5) {
+      const ring = coords[0] as Position[]
+      const w = distanceMeters(ring[0], ring[1])
+      const h = distanceMeters(ring[0], ring[3])
+      if (w > 0.3 && h > 0.3) {
+        this.map.fire("draw.measurement.clear", {})
+        this.changeMode("simple_select", {
+          featureIds: [state.rectangle.id],
+        })
+        return
+      }
+    }
+    // Too small — reset for next attempt
+    state.startPoint = null
+    state.rectangle.setCoordinates([[]])
+    this.map.fire("draw.measurement.clear", {})
   },
 
   onClick() {},
@@ -114,10 +100,16 @@ const DrawRectangleMode = {
   },
 
   onStop(this: Ctx, state: Ctx) {
-    if (state._down) this.map.off("mousedown", state._down)
-    if (state._up) this.map.off("mouseup", state._up)
-    this.map.fire("draw.measurement.clear", {})
     this.updateUIClasses({ mouse: "none" })
+    this.map.fire("draw.measurement.clear", {})
+    if (this.getFeature(state.rectangle.id) === undefined) return
+    if (state.rectangle.isValid()) {
+      this.fire("draw.create", {
+        features: [state.rectangle.toGeoJSON()],
+      })
+    } else {
+      this.deleteFeature([state.rectangle.id], { silent: true })
+    }
   },
 
   onTrash(this: Ctx, state: Ctx) {

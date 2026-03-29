@@ -41,52 +41,24 @@ const DrawCircleMode = {
       uncombineFeatures: false,
     })
 
-    const mode = this
-    const state: Ctx = {
+    return {
       polygon,
       center: null as Position | null,
-      isDragging: false,
-      _down: null as ((e: Ctx) => void) | null,
-      _up: null as (() => void) | null,
     }
-
-    // Raw mousedown
-    state._down = (e: Ctx) => {
-      state.center = [e.lngLat.lng, e.lngLat.lat]
-      state.isDragging = true
-    }
-
-    // Raw mouseup
-    state._up = () => {
-      if (!state.isDragging || !state.center) return
-      state.isDragging = false
-      const coords = state.polygon.getCoordinates()
-      if (coords[0] && coords[0].length > 1) {
-        mode.map.fire("draw.measurement.clear", {})
-        mode.changeMode("simple_select", {
-          featureIds: [state.polygon.id],
-        })
-        return
-      }
-      state.center = null
-      mode.map.fire("draw.measurement.clear", {})
-    }
-
-    this.map.on("mousedown", state._down)
-    this.map.on("mouseup", state._up)
-
-    return state
   },
 
-  // Use draw's onMouseMove — triggers render cycle so circle preview is visible
-  onMouseMove(this: Ctx, state: Ctx, e: Ctx) {
-    if (!state.isDragging || !state.center) return
+  onMouseDown(this: Ctx, state: Ctx, e: Ctx) {
+    state.center = [e.lngLat.lng, e.lngLat.lat]
+  },
+
+  onDrag(this: Ctx, state: Ctx, e: Ctx) {
+    if (!state.center) return
     const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
     const radiusM = distanceMeters(state.center, cursor)
     const radiusKm = radiusM / 1000
     if (radiusKm > 0) {
       const coords = createCirclePolygon(state.center, radiusKm)
-      state.polygon.setCoordinates([coords])
+      state.polygon.incomingCoords([coords])
     }
     this.map.fire("draw.measurement", {
       text: `r = ${formatDistance(radiusM)}`,
@@ -97,6 +69,21 @@ const DrawCircleMode = {
       text: formatArea(area),
       centroid: state.center,
     })
+  },
+
+  onMouseUp(this: Ctx, state: Ctx) {
+    if (!state.center) return
+    const coords = state.polygon.getCoordinates()
+    if (coords[0] && coords[0].length > 1) {
+      this.map.fire("draw.measurement.clear", {})
+      this.changeMode("simple_select", {
+        featureIds: [state.polygon.id],
+      })
+      return
+    }
+    // Too small — reset for next attempt
+    state.center = null
+    this.map.fire("draw.measurement.clear", {})
   },
 
   onClick() {},
@@ -120,10 +107,16 @@ const DrawCircleMode = {
   },
 
   onStop(this: Ctx, state: Ctx) {
-    if (state._down) this.map.off("mousedown", state._down)
-    if (state._up) this.map.off("mouseup", state._up)
-    this.map.fire("draw.measurement.clear", {})
     this.updateUIClasses({ mouse: "none" })
+    this.map.fire("draw.measurement.clear", {})
+    if (this.getFeature(state.polygon.id) === undefined) return
+    if (state.polygon.isValid()) {
+      this.fire("draw.create", {
+        features: [state.polygon.toGeoJSON()],
+      })
+    } else {
+      this.deleteFeature([state.polygon.id], { silent: true })
+    }
   },
 
   onTrash(this: Ctx, state: Ctx) {
