@@ -25,14 +25,8 @@ function createCirclePolygon(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Ctx = any
 
-interface State {
-  polygon: Ctx
-  center: Position | null
-  isDragging: boolean
-}
-
 const DrawCircleMode = {
-  onSetup(this: Ctx): State {
+  onSetup(this: Ctx) {
     const polygon = this.newFeature({
       type: "Feature",
       properties: { isCircle: true },
@@ -46,59 +40,82 @@ const DrawCircleMode = {
       combineFeatures: false,
       uncombineFeatures: false,
     })
-    return { polygon, center: null, isDragging: false }
-  },
 
-  onMouseDown(this: Ctx, state: State, e: Ctx) {
-    state.center = [e.lngLat.lng, e.lngLat.lat]
-    state.isDragging = true
-  },
-
-  onMouseMove(this: Ctx, state: State, e: Ctx) {
-    if (!state.isDragging || !state.center) return
-    const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
-    const radiusM = distanceMeters(state.center, cursor)
-    const radiusKm = radiusM / 1000
-    if (radiusKm > 0) {
-      const coords = createCirclePolygon(state.center, radiusKm)
-      state.polygon.setCoordinates([coords])
+    const mode = this
+    const state: {
+      polygon: Ctx
+      center: Position | null
+      isDragging: boolean
+      _down: ((e: Ctx) => void) | null
+      _move: ((e: Ctx) => void) | null
+      _up: (() => void) | null
+    } = {
+      polygon,
+      center: null,
+      isDragging: false,
+      _down: null,
+      _move: null,
+      _up: null,
     }
 
-    // Segment measurement at edge
-    this.map.fire("draw.measurement", {
-      text: `r = ${formatDistance(radiusM)}`,
-      lngLat: e.lngLat,
-    })
+    state._down = (e: Ctx) => {
+      state.center = [e.lngLat.lng, e.lngLat.lat]
+      state.isDragging = true
+    }
 
-    // Area at center
-    const area = Math.PI * radiusM * radiusM
-    this.map.fire("draw.measurement.area", {
-      text: formatArea(area),
-      centroid: state.center,
-    })
-  },
-
-  onMouseUp(this: Ctx, state: State) {
-    if (!state.isDragging || !state.center) return
-    state.isDragging = false
-
-    const coords = state.polygon.getCoordinates()
-    if (coords[0] && coords[0].length > 1) {
-      this.map.fire("draw.measurement.clear", {})
-      this.changeMode("simple_select", {
-        featureIds: [state.polygon.id],
+    state._move = (e: Ctx) => {
+      if (!state.isDragging || !state.center) return
+      const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
+      const radiusM = distanceMeters(state.center, cursor)
+      const radiusKm = radiusM / 1000
+      if (radiusKm > 0) {
+        const coords = createCirclePolygon(state.center, radiusKm)
+        state.polygon.setCoordinates([coords])
+      }
+      mode.map.fire("draw.measurement", {
+        text: `r = ${formatDistance(radiusM)}`,
+        lngLat: e.lngLat,
       })
-      return
+      const area = Math.PI * radiusM * radiusM
+      mode.map.fire("draw.measurement.area", {
+        text: formatArea(area),
+        centroid: state.center,
+      })
     }
-    // No drag — reset
-    state.center = null
-    this.map.fire("draw.measurement.clear", {})
+
+    state._up = () => {
+      if (!state.isDragging || !state.center) return
+      state.isDragging = false
+      const coords = state.polygon.getCoordinates()
+      if (coords[0] && coords[0].length > 1) {
+        mode.map.fire("draw.measurement.clear", {})
+        mode.changeMode("simple_select", {
+          featureIds: [state.polygon.id],
+        })
+        return
+      }
+      state.center = null
+      mode.map.fire("draw.measurement.clear", {})
+    }
+
+    this.map.on("mousedown", state._down)
+    this.map.on("mousemove", state._move)
+    this.map.on("mouseup", state._up)
+
+    return state
   },
 
-  // Ignore clicks — we use mousedown/up
+  onStop(this: Ctx, state: Ctx) {
+    if (state._down) this.map.off("mousedown", state._down)
+    if (state._move) this.map.off("mousemove", state._move)
+    if (state._up) this.map.off("mouseup", state._up)
+    this.map.fire("draw.measurement.clear", {})
+    this.updateUIClasses({ mouse: "none" })
+  },
+
   onClick() {},
 
-  onKeyUp(this: Ctx, state: State, e: { key: string }) {
+  onKeyUp(this: Ctx, state: Ctx, e: Ctx) {
     if (e.key === "Escape") {
       this.deleteFeature([state.polygon.id], { silent: true })
       this.map.fire("draw.measurement.clear", {})
@@ -108,7 +125,7 @@ const DrawCircleMode = {
 
   toDisplayFeatures(
     this: Ctx,
-    _state: State,
+    _state: Ctx,
     geojson: Feature,
     display: (f: Feature) => void
   ) {
@@ -116,12 +133,7 @@ const DrawCircleMode = {
     display(geojson)
   },
 
-  onStop(this: Ctx) {
-    this.map.fire("draw.measurement.clear", {})
-    this.updateUIClasses({ mouse: "none" })
-  },
-
-  onTrash(this: Ctx, state: State) {
+  onTrash(this: Ctx, state: Ctx) {
     this.deleteFeature([state.polygon.id], { silent: true })
     this.map.fire("draw.measurement.clear", {})
     this.changeMode("simple_select")

@@ -4,14 +4,8 @@ import { distanceMeters, centroid, formatDistance, formatArea } from "@/lib/meas
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Ctx = any
 
-interface State {
-  rectangle: Ctx
-  startPoint: Position | null
-  isDragging: boolean
-}
-
 const DrawRectangleMode = {
-  onSetup(this: Ctx): State {
+  onSetup(this: Ctx) {
     const rectangle = this.newFeature({
       type: "Feature",
       properties: {},
@@ -25,75 +19,96 @@ const DrawRectangleMode = {
       combineFeatures: false,
       uncombineFeatures: false,
     })
-    return { rectangle, startPoint: null, isDragging: false }
-  },
 
-  onMouseDown(this: Ctx, state: State, e: Ctx) {
-    state.startPoint = [e.lngLat.lng, e.lngLat.lat]
-    state.isDragging = true
-  },
-
-  onMouseMove(this: Ctx, state: State, e: Ctx) {
-    if (!state.isDragging || !state.startPoint) return
-    const start = state.startPoint
-    const end: Position = [e.lngLat.lng, e.lngLat.lat]
-    const ring: Position[] = [
-      start,
-      [end[0], start[1]],
-      end,
-      [start[0], end[1]],
-      start,
-    ]
-    state.rectangle.setCoordinates([ring])
-
-    // Measurements
-    const width = distanceMeters(start, [end[0], start[1]])
-    const height = distanceMeters(start, [start[0], end[1]])
-    const area = width * height
-
-    // Segment label at midpoint of the edge closest to cursor
-    const midTop: Position = [(start[0] + end[0]) / 2, start[1]]
-    this.map.fire("draw.measurement", {
-      text: `${formatDistance(width)} × ${formatDistance(height)}`,
-      lngLat: { lng: midTop[0], lat: midTop[1] },
-    })
-
-    // Area at centroid
-    const center = centroid(ring)
-    this.map.fire("draw.measurement.area", {
-      text: formatArea(area),
-      centroid: center,
-    })
-  },
-
-  onMouseUp(this: Ctx, state: State) {
-    if (!state.isDragging || !state.startPoint) return
-    state.isDragging = false
-
-    const coords = state.rectangle.getCoordinates()
-    if (coords[0] && coords[0].length >= 5) {
-      // Check minimum size
-      const ring = coords[0] as Position[]
-      const w = distanceMeters(ring[0], ring[1])
-      const h = distanceMeters(ring[0], ring[3])
-      if (w > 0.5 && h > 0.5) {
-        this.map.fire("draw.measurement.clear", {})
-        this.changeMode("simple_select", {
-          featureIds: [state.rectangle.id],
-        })
-        return
-      }
+    const mode = this
+    const state: {
+      rectangle: Ctx
+      startPoint: Position | null
+      isDragging: boolean
+      _down: ((e: Ctx) => void) | null
+      _move: ((e: Ctx) => void) | null
+      _up: (() => void) | null
+    } = {
+      rectangle,
+      startPoint: null,
+      isDragging: false,
+      _down: null,
+      _move: null,
+      _up: null,
     }
-    // Too small — reset for another attempt
-    state.startPoint = null
-    state.rectangle.setCoordinates([[]])
-    this.map.fire("draw.measurement.clear", {})
+
+    state._down = (e: Ctx) => {
+      state.startPoint = [e.lngLat.lng, e.lngLat.lat]
+      state.isDragging = true
+    }
+
+    state._move = (e: Ctx) => {
+      if (!state.isDragging || !state.startPoint) return
+      const start = state.startPoint
+      const end: Position = [e.lngLat.lng, e.lngLat.lat]
+      const ring: Position[] = [
+        start,
+        [end[0], start[1]],
+        end,
+        [start[0], end[1]],
+        start,
+      ]
+      state.rectangle.setCoordinates([ring])
+
+      const width = distanceMeters(start, [end[0], start[1]])
+      const height = distanceMeters(start, [start[0], end[1]])
+      const area = width * height
+      const midTop: Position = [(start[0] + end[0]) / 2, start[1]]
+      mode.map.fire("draw.measurement", {
+        text: `${formatDistance(width)} × ${formatDistance(height)}`,
+        lngLat: { lng: midTop[0], lat: midTop[1] },
+      })
+      const center = centroid(ring)
+      mode.map.fire("draw.measurement.area", {
+        text: formatArea(area),
+        centroid: center,
+      })
+    }
+
+    state._up = () => {
+      if (!state.isDragging || !state.startPoint) return
+      state.isDragging = false
+      const coords = state.rectangle.getCoordinates()
+      if (coords[0] && coords[0].length >= 5) {
+        const ring = coords[0] as Position[]
+        const w = distanceMeters(ring[0], ring[1])
+        const h = distanceMeters(ring[0], ring[3])
+        if (w > 0.3 && h > 0.3) {
+          mode.map.fire("draw.measurement.clear", {})
+          mode.changeMode("simple_select", {
+            featureIds: [state.rectangle.id],
+          })
+          return
+        }
+      }
+      state.startPoint = null
+      state.rectangle.setCoordinates([[]])
+      mode.map.fire("draw.measurement.clear", {})
+    }
+
+    this.map.on("mousedown", state._down)
+    this.map.on("mousemove", state._move)
+    this.map.on("mouseup", state._up)
+
+    return state
   },
 
-  // Ignore clicks — we use mousedown/up
+  onStop(this: Ctx, state: Ctx) {
+    if (state._down) this.map.off("mousedown", state._down)
+    if (state._move) this.map.off("mousemove", state._move)
+    if (state._up) this.map.off("mouseup", state._up)
+    this.map.fire("draw.measurement.clear", {})
+    this.updateUIClasses({ mouse: "none" })
+  },
+
   onClick() {},
 
-  onKeyUp(this: Ctx, state: State, e: { key: string }) {
+  onKeyUp(this: Ctx, state: Ctx, e: Ctx) {
     if (e.key === "Escape") {
       this.deleteFeature([state.rectangle.id], { silent: true })
       this.map.fire("draw.measurement.clear", {})
@@ -103,7 +118,7 @@ const DrawRectangleMode = {
 
   toDisplayFeatures(
     this: Ctx,
-    _state: State,
+    _state: Ctx,
     geojson: Feature,
     display: (f: Feature) => void
   ) {
@@ -111,12 +126,7 @@ const DrawRectangleMode = {
     display(geojson)
   },
 
-  onStop(this: Ctx) {
-    this.map.fire("draw.measurement.clear", {})
-    this.updateUIClasses({ mouse: "none" })
-  },
-
-  onTrash(this: Ctx, state: State) {
+  onTrash(this: Ctx, state: Ctx) {
     this.deleteFeature([state.rectangle.id], { silent: true })
     this.map.fire("draw.measurement.clear", {})
     this.changeMode("simple_select")
