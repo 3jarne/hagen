@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback, useState } from "react"
 import mapboxgl from "mapbox-gl"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
 import "mapbox-gl/dist/mapbox-gl.css"
@@ -31,6 +31,13 @@ const ZONE_DEFAULTS = {
   zone: "Lawn",
 }
 
+interface ContextMenuState {
+  x: number
+  y: number
+  featureIds: string[]
+  featureType: "text" | "draw"
+}
+
 export function MapView({
   onZoomChange,
   activeTool,
@@ -45,8 +52,16 @@ export function MapView({
   const historyRef = useRef<UndoRedoHistory | null>(null)
   const activeToolRef = useRef<Tool>(activeTool)
   const popupRef = useRef<mapboxgl.Popup | null>(null)
-  // Track whether tool change came from user (toolbar/keyboard) vs mode auto-switch
   const suppressModeSync = useRef(false)
+
+  // Text features state
+  const textFeaturesRef = useRef<Feature[]>([])
+  const selectedTextIdsRef = useRef<Set<string>>(new Set())
+  const textInputRef = useRef<HTMLInputElement | null>(null)
+  const editingTextIdRef = useRef<string | null>(null)
+
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
 
   useEffect(() => {
     activeToolRef.current = activeTool
@@ -78,6 +93,20 @@ export function MapView({
     } catch {
       // Silent fail
     }
+  }, [])
+
+  /** Sync text features ref to the map GeoJSON source */
+  const syncTextLabels = useCallback((map: mapboxgl.Map) => {
+    const source = map.getSource("text-labels") as mapboxgl.GeoJSONSource
+    if (!source) return
+    const features = textFeaturesRef.current.map((f) => ({
+      ...f,
+      properties: {
+        ...f.properties,
+        selected: selectedTextIdsRef.current.has(f.properties!.id),
+      },
+    }))
+    source.setData({ type: "FeatureCollection", features })
   }, [])
 
   /** Build area label GeoJSON from completed draw features, with optional extra label */
@@ -127,6 +156,17 @@ export function MapView({
     [buildAreaLabels]
   )
 
+  /** Push current state to history */
+  const pushHistory = useCallback(() => {
+    const draw = drawRef.current
+    const history = historyRef.current
+    if (!draw || !history) return
+    history.push({
+      drawFeatures: draw.getAll().features,
+      textFeatures: [...textFeaturesRef.current],
+    })
+  }, [])
+
   const restoreSnapshot = useCallback(
     (snapshot: Snapshot) => {
       const draw = drawRef.current
@@ -136,9 +176,12 @@ export function MapView({
       for (const feature of snapshot.drawFeatures) {
         draw.add(feature)
       }
+      textFeaturesRef.current = [...snapshot.textFeatures]
+      selectedTextIdsRef.current.clear()
+      syncTextLabels(map)
       updateAreaLabels(map, draw)
     },
-    [updateAreaLabels]
+    [updateAreaLabels, syncTextLabels]
   )
 
   const handleUndo = useCallback(() => {
@@ -159,6 +202,62 @@ export function MapView({
     undoRef.current = handleUndo
     redoRef.current = handleRedo
   }, [handleUndo, handleRedo, undoRef, redoRef])
+
+  /** Remove any active text input overlay */
+  const removeTextInput = useCallback(() => {
+    if (textInputRef.current) {
+      textInputRef.current.remove()
+      textInputRef.current = null
+    }
+    editingTextIdRef.current = null
+  }, [])
+
+  /** Show a text input overlay at a map position */
+  const showTextInput = useCallback(
+    (
+      map: mapboxgl.Map,
+      lngLat: { lng: number; lat: number },
+      initialValue: string,
+      onConfirm: (value: string) => void
+    ) => {
+      removeTextInput()
+      const point = map.project([lngLat.lng, lngLat.lat])
+      const input = document.createElement("input")
+      input.type = "text"
+      input.className = "text-label-input"
+      input.value = initialValue
+      input.style.left = `${point.x}px`
+      input.style.top = `${point.y}px`
+
+      let confirmed = false
+      const confirm = () => {
+        if (confirmed) return
+        confirmed = true
+        const value = input.value.trim()
+        if (value) onConfirm(value)
+        removeTextInput()
+      }
+
+      input.addEventListener("keydown", (e) => {
+        e.stopPropagation()
+        if (e.key === "Enter") {
+          e.preventDefault()
+          confirm()
+        }
+        if (e.key === "Escape") {
+          e.preventDefault()
+          removeTextInput()
+        }
+      })
+      input.addEventListener("blur", confirm)
+
+      mapContainerRef.current?.appendChild(input)
+      textInputRef.current = input
+      input.focus()
+      if (initialValue) input.select()
+    },
+    [removeTextInput]
+  )
 
   // Main map setup
   useEffect(() => {
@@ -192,7 +291,7 @@ export function MapView({
     const history = new UndoRedoHistory(onUndoRedoChange)
     historyRef.current = history
 
-    // Measurement popup (for segment/dimension labels near edges)
+    // Measurement popup
     const popup = new mapboxgl.Popup({
       closeButton: false,
       closeOnClick: false,
@@ -236,7 +335,7 @@ export function MapView({
 
       addUserPlotLayer(map)
 
-      // Area labels layer (on top of everything)
+      // Area labels layer
       map.addSource("area-labels", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -258,6 +357,39 @@ export function MapView({
         },
       })
 
+      // Text labels layer
+      map.addSource("text-labels", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      })
+      map.addLayer({
+        id: "text-labels-selected",
+        type: "circle",
+        source: "text-labels",
+        filter: ["==", ["get", "selected"], true],
+        paint: {
+          "circle-radius": 14,
+          "circle-color": "#3b82f6",
+          "circle-opacity": 0.3,
+        },
+      })
+      map.addLayer({
+        id: "text-labels",
+        type: "symbol",
+        source: "text-labels",
+        layout: {
+          "text-field": ["get", "label"],
+          "text-size": ["coalesce", ["get", "fontSize"], 16],
+          "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+          "text-allow-overlap": true,
+        },
+        paint: {
+          "text-color": ["coalesce", ["get", "textColor"], "#ffffff"],
+          "text-halo-color": "#000000",
+          "text-halo-width": 1.5,
+        },
+      })
+
       history.push({ drawFeatures: [], textFeatures: [] })
     })
 
@@ -266,28 +398,48 @@ export function MapView({
       for (const feature of e.features) {
         const id = feature.id as string
         draw.setFeatureProperty(id, "user_fillColor", ZONE_DEFAULTS.fillColor)
-        draw.setFeatureProperty(id, "user_fillOpacity", ZONE_DEFAULTS.fillOpacity)
-        draw.setFeatureProperty(id, "user_strokeColor", ZONE_DEFAULTS.strokeColor)
-        draw.setFeatureProperty(id, "user_strokeWidth", ZONE_DEFAULTS.strokeWidth)
+        draw.setFeatureProperty(
+          id,
+          "user_fillOpacity",
+          ZONE_DEFAULTS.fillOpacity
+        )
+        draw.setFeatureProperty(
+          id,
+          "user_strokeColor",
+          ZONE_DEFAULTS.strokeColor
+        )
+        draw.setFeatureProperty(
+          id,
+          "user_strokeWidth",
+          ZONE_DEFAULTS.strokeWidth
+        )
         draw.setFeatureProperty(id, "user_zone", ZONE_DEFAULTS.zone)
       }
       draw.set(draw.getAll())
       updateAreaLabels(map, draw)
-      history.push({ drawFeatures: draw.getAll().features, textFeatures: [] })
+      history.push({
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+      })
     })
 
     map.on("draw.update", () => {
       updateAreaLabels(map, draw)
-      history.push({ drawFeatures: draw.getAll().features, textFeatures: [] })
+      history.push({
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+      })
     })
 
     map.on("draw.delete", () => {
       updateAreaLabels(map, draw)
-      history.push({ drawFeatures: draw.getAll().features, textFeatures: [] })
+      history.push({
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+      })
     })
 
-    // When draw mode changes to simple_select (after completing a shape),
-    // auto-switch tool to select
+    // Auto-switch tool to select after shape completion
     map.on("draw.modechange", (e: { mode: string }) => {
       if (suppressModeSync.current) return
       if (e.mode === "simple_select" && activeToolRef.current !== "select") {
@@ -295,7 +447,7 @@ export function MapView({
       }
     })
 
-    // Hide area labels while features are being moved (selection active)
+    // Hide area labels while features are being moved
     map.on("draw.selectionchange", (e: { features: GeoJSON.Feature[] }) => {
       if (map.getLayer("area-labels")) {
         map.setLayoutProperty(
@@ -307,22 +459,185 @@ export function MapView({
     })
 
     // Measurement events from draw modes
-    map.on("draw.measurement" as string, (e: { text: string; lngLat: { lng: number; lat: number } }) => {
-      popup
-        .setLngLat([e.lngLat.lng, e.lngLat.lat])
-        .setHTML(`<div class="measurement-text">${e.text}</div>`)
-        .addTo(map)
-    })
+    map.on(
+      "draw.measurement" as string,
+      (e: { text: string; lngLat: { lng: number; lat: number } }) => {
+        popup
+          .setLngLat([e.lngLat.lng, e.lngLat.lat])
+          .setHTML(`<div class="measurement-text">${e.text}</div>`)
+          .addTo(map)
+      }
+    )
 
-    map.on("draw.measurement.area" as string, (e: { text: string; centroid: Position }) => {
-      updateAreaLabels(map, draw, { coords: e.centroid, text: e.text })
-    })
+    map.on(
+      "draw.measurement.area" as string,
+      (e: { text: string; centroid: Position }) => {
+        updateAreaLabels(map, draw, { coords: e.centroid, text: e.text })
+      }
+    )
 
     map.on("draw.measurement.clear" as string, () => {
       popup.remove()
-      // Remove temporary area label — rebuild with only completed shapes
       updateAreaLabels(map, draw)
     })
+
+    // Text tool: click to place text
+    map.on("click", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "text") return
+      if (textInputRef.current) return // already editing
+
+      showTextInput(map, e.lngLat, "", (value) => {
+        const id = crypto.randomUUID()
+        const feature: Feature = {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [e.lngLat.lng, e.lngLat.lat],
+          },
+          properties: {
+            id,
+            label: value,
+            textColor: "#ffffff",
+            fontSize: 16,
+          },
+        }
+        textFeaturesRef.current = [...textFeaturesRef.current, feature]
+        syncTextLabels(map)
+        history.push({
+          drawFeatures: draw.getAll().features,
+          textFeatures: [...textFeaturesRef.current],
+        })
+      })
+    })
+
+    // Select tool: click to select/deselect text labels
+    map.on("click", (e: mapboxgl.MapMouseEvent) => {
+      if (
+        activeToolRef.current !== "select" &&
+        activeToolRef.current !== "text"
+      )
+        return
+      if (activeToolRef.current === "text") return // handled above
+      if (textInputRef.current) return
+
+      const textHits = map.queryRenderedFeatures(e.point, {
+        layers: ["text-labels"],
+      })
+
+      if (textHits.length > 0) {
+        const hitId = textHits[0].properties!.id as string
+        if (e.originalEvent.shiftKey) {
+          // Toggle in selection
+          if (selectedTextIdsRef.current.has(hitId)) {
+            selectedTextIdsRef.current.delete(hitId)
+          } else {
+            selectedTextIdsRef.current.add(hitId)
+          }
+        } else {
+          // Single select — deselect draw features too
+          selectedTextIdsRef.current.clear()
+          selectedTextIdsRef.current.add(hitId)
+          draw.changeMode("simple_select")
+        }
+        syncTextLabels(map)
+        return
+      }
+
+      // Click on empty space — deselect text
+      if (selectedTextIdsRef.current.size > 0) {
+        selectedTextIdsRef.current.clear()
+        syncTextLabels(map)
+      }
+    })
+
+    // Double-click to edit text label
+    map.on("dblclick", (e: mapboxgl.MapMouseEvent) => {
+      const textHits = map.queryRenderedFeatures(e.point, {
+        layers: ["text-labels"],
+      })
+      if (textHits.length === 0) return
+
+      e.preventDefault()
+      const hitId = textHits[0].properties!.id as string
+      const feature = textFeaturesRef.current.find(
+        (f) => f.properties!.id === hitId
+      )
+      if (!feature) return
+
+      editingTextIdRef.current = hitId
+      const coords = (feature.geometry as GeoJSON.Point).coordinates
+      showTextInput(
+        map,
+        { lng: coords[0], lat: coords[1] },
+        feature.properties!.label,
+        (value) => {
+          textFeaturesRef.current = textFeaturesRef.current.map((f) =>
+            f.properties!.id === hitId
+              ? { ...f, properties: { ...f.properties!, label: value } }
+              : f
+          )
+          syncTextLabels(map)
+          history.push({
+            drawFeatures: draw.getAll().features,
+            textFeatures: [...textFeaturesRef.current],
+          })
+        }
+      )
+    })
+
+    // Right-click context menu
+    map.on("contextmenu", (e: mapboxgl.MapMouseEvent) => {
+      e.preventDefault()
+
+      // Check text labels first
+      const textHits = map.queryRenderedFeatures(e.point, {
+        layers: ["text-labels"],
+      })
+      if (textHits.length > 0) {
+        const hitId = textHits[0].properties!.id as string
+        if (!selectedTextIdsRef.current.has(hitId)) {
+          selectedTextIdsRef.current.clear()
+          selectedTextIdsRef.current.add(hitId)
+          draw.changeMode("simple_select")
+          syncTextLabels(map)
+        }
+        setContextMenu({
+          x: e.point.x,
+          y: e.point.y,
+          featureIds: [...selectedTextIdsRef.current],
+          featureType: "text",
+        })
+        return
+      }
+
+      // Check draw features
+      const drawHits = map.queryRenderedFeatures(e.point, {
+        layers: (map.getStyle().layers || [])
+          .filter((l) => l.id.startsWith("gl-draw-"))
+          .map((l) => l.id),
+      })
+      if (drawHits.length > 0) {
+        const hitId = drawHits[0].properties!.id as string
+        if (hitId) {
+          const selected = draw.getSelectedIds()
+          if (!selected.includes(hitId)) {
+            draw.changeMode("simple_select", { featureIds: [hitId] })
+          }
+          setContextMenu({
+            x: e.point.x,
+            y: e.point.y,
+            featureIds: draw.getSelectedIds().length > 0 ? draw.getSelectedIds() : [hitId],
+            featureType: "draw",
+          })
+          return
+        }
+      }
+
+      setContextMenu(null)
+    })
+
+    // Close context menu on map interaction
+    map.on("movestart", () => setContextMenu(null))
 
     // GPS geolocation
     const settings = loadSettings()
@@ -351,7 +666,15 @@ export function MapView({
       map.remove()
       mapRef.current = null
     }
-  }, [onZoomChange, onUndoRedoChange, onToolChange, addUserPlotLayer, updateAreaLabels])
+  }, [
+    onZoomChange,
+    onUndoRedoChange,
+    onToolChange,
+    addUserPlotLayer,
+    updateAreaLabels,
+    syncTextLabels,
+    showTextInput,
+  ])
 
   // Sync active tool to draw mode + manage dragPan
   useEffect(() => {
@@ -365,6 +688,8 @@ export function MapView({
       activeTool === "circle"
 
     popupRef.current?.remove()
+    removeTextInput()
+    setContextMenu(null)
 
     // Suppress mode sync to prevent feedback loop
     suppressModeSync.current = true
@@ -400,7 +725,89 @@ export function MapView({
         map.dragPan.enable()
       }
     }
-  }, [activeTool])
+  }, [activeTool, removeTextInput])
+
+  // Context menu actions
+  const handleContextDelete = useCallback(() => {
+    if (!contextMenu) return
+    const map = mapRef.current
+    const draw = drawRef.current
+    if (!map || !draw) return
+
+    if (contextMenu.featureType === "text") {
+      const idsToDelete = new Set(contextMenu.featureIds)
+      textFeaturesRef.current = textFeaturesRef.current.filter(
+        (f) => !idsToDelete.has(f.properties!.id)
+      )
+      selectedTextIdsRef.current.clear()
+      syncTextLabels(map)
+    } else {
+      for (const id of contextMenu.featureIds) {
+        draw.delete(id)
+      }
+      updateAreaLabels(map, draw)
+    }
+
+    setContextMenu(null)
+    pushHistory()
+  }, [contextMenu, syncTextLabels, updateAreaLabels, pushHistory])
+
+  const handleContextDuplicate = useCallback(() => {
+    if (!contextMenu) return
+    const map = mapRef.current
+    const draw = drawRef.current
+    if (!map || !draw) return
+
+    if (contextMenu.featureType === "text") {
+      const newFeatures: Feature[] = []
+      for (const id of contextMenu.featureIds) {
+        const original = textFeaturesRef.current.find(
+          (f) => f.properties!.id === id
+        )
+        if (!original) continue
+        const coords = (original.geometry as GeoJSON.Point).coordinates
+        const screenPt = map.project([coords[0], coords[1]])
+        const newPt = map.unproject([screenPt.x + 20, screenPt.y + 20])
+        newFeatures.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [newPt.lng, newPt.lat] },
+          properties: {
+            ...original.properties,
+            id: crypto.randomUUID(),
+          },
+        })
+      }
+      textFeaturesRef.current = [...textFeaturesRef.current, ...newFeatures]
+      selectedTextIdsRef.current.clear()
+      for (const f of newFeatures) {
+        selectedTextIdsRef.current.add(f.properties!.id)
+      }
+      syncTextLabels(map)
+    } else {
+      for (const id of contextMenu.featureIds) {
+        const feature = draw.get(id)
+        if (!feature) continue
+        // Offset all coordinates by 20px
+        const cloned = JSON.parse(JSON.stringify(feature)) as Feature
+        delete (cloned as { id?: unknown }).id
+        if (cloned.geometry.type === "Polygon") {
+          const poly = cloned.geometry as Polygon
+          poly.coordinates = poly.coordinates.map((ring) =>
+            ring.map((coord) => {
+              const pt = map.project([coord[0], coord[1]])
+              const newPt = map.unproject([pt.x + 20, pt.y + 20])
+              return [newPt.lng, newPt.lat]
+            })
+          )
+        }
+        draw.add(cloned)
+      }
+      updateAreaLabels(map, draw)
+    }
+
+    setContextMenu(null)
+    pushHistory()
+  }, [contextMenu, syncTextLabels, updateAreaLabels, pushHistory])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -426,10 +833,17 @@ export function MapView({
             onToolChange("text")
             return
           case "escape": {
+            setContextMenu(null)
+            removeTextInput()
             const draw = drawRef.current
+            const map = mapRef.current
             if (draw) {
               draw.trash()
               draw.changeMode("simple_select")
+            }
+            if (map && selectedTextIdsRef.current.size > 0) {
+              selectedTextIdsRef.current.clear()
+              syncTextLabels(map)
             }
             popupRef.current?.remove()
             onToolChange("select")
@@ -439,10 +853,29 @@ export function MapView({
           case "backspace": {
             const draw = drawRef.current
             const map = mapRef.current
-            if (draw) {
+            if (!draw || !map) return
+
+            let changed = false
+
+            // Delete selected draw features
+            const selectedDraw = draw.getSelectedIds()
+            if (selectedDraw.length > 0) {
               draw.trash()
-              if (map) updateAreaLabels(map, draw)
+              updateAreaLabels(map, draw)
+              changed = true
             }
+
+            // Delete selected text features
+            if (selectedTextIdsRef.current.size > 0) {
+              textFeaturesRef.current = textFeaturesRef.current.filter(
+                (f) => !selectedTextIdsRef.current.has(f.properties!.id)
+              )
+              selectedTextIdsRef.current.clear()
+              syncTextLabels(map)
+              changed = true
+            }
+
+            if (changed) pushHistory()
             return
           }
         }
@@ -462,7 +895,23 @@ export function MapView({
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [onToolChange, handleUndo, handleRedo, updateAreaLabels])
+  }, [
+    onToolChange,
+    handleUndo,
+    handleRedo,
+    updateAreaLabels,
+    syncTextLabels,
+    pushHistory,
+    removeTextInput,
+  ])
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!contextMenu) return
+    const handleClick = () => setContextMenu(null)
+    window.addEventListener("click", handleClick)
+    return () => window.removeEventListener("click", handleClick)
+  }, [contextMenu])
 
   if (!hasValidToken()) {
     return (
@@ -477,5 +926,31 @@ export function MapView({
     )
   }
 
-  return <div ref={mapContainerRef} className="absolute inset-0" />
+  return (
+    <>
+      <div ref={mapContainerRef} className="absolute inset-0" />
+      {contextMenu && (
+        <div
+          className="absolute z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+            onClick={handleContextDelete}
+          >
+            Delete
+            <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+              Del
+            </span>
+          </button>
+          <button
+            className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+            onClick={handleContextDuplicate}
+          >
+            Duplicate
+          </button>
+        </div>
+      )}
+    </>
+  )
 }

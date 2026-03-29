@@ -15,8 +15,8 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 ## Phase Status
 
 - [x] Phase 1 — Foundation and layout skeleton
-- [ ] Phase 2 — Drawing tools and undo/redo
-- [ ] Phase 3 — Text tool and selection behaviour
+- [x] Phase 2 — Drawing tools and undo/redo
+- [x] Phase 3 — Text tool and selection behaviour
 - [ ] Phase 4 — Properties panel
 - [ ] Phase 5 — Persistence and export
 - [ ] Phase 6 — View menu and map controls
