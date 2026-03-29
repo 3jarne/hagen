@@ -258,6 +258,7 @@ export function MapView({
         }
         if (e.key === "Escape") {
           e.preventDefault()
+          confirmed = true // prevent blur from saving
           removeTextInput()
         }
       })
