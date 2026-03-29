@@ -145,15 +145,16 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Find your coordinates on{" "}
+              Right-click your home on{" "}
               <a
-                href="https://seeiendom.kartverket.no/"
+                href="https://www.google.com/maps"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline"
               >
-                seeiendom.kartverket.no
+                Google Maps
               </a>
+              {" "}→ the first line shows latitude, longitude. Click to copy.
             </p>
           </div>
 

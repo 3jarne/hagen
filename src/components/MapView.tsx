@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from "react"
 import mapboxgl from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { CONFIG } from "@/config"
-import { hasValidToken } from "@/components/SettingsDialog"
+import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 
 interface MapViewProps {
   onZoomChange: (zoom: number) => void
@@ -17,7 +17,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
       map.addSource("kartverket-wms", {
         type: "raster",
         tiles: [
-          "https://wms.geonorge.no/skwms1/wms.matrikkelkart?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=Eiendomskart&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}",
+          "https://wms.geonorge.no/skwms1/wms.matrikkelkart?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=eiendomskart&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}",
         ],
         tileSize: 256,
         minzoom: 14,
@@ -110,7 +110,16 @@ export function MapView({ onZoomChange }: MapViewProps) {
       addUserPlotLayer(map)
     })
 
-    if (navigator.geolocation && window.location.protocol === "https:") {
+    // Only use GPS if user hasn't configured custom coordinates
+    const settings = loadSettings()
+    const hasCustomCoords =
+      settings.lat !== 60.3723 || settings.lng !== 11.0701
+
+    if (
+      !hasCustomCoords &&
+      navigator.geolocation &&
+      window.location.protocol === "https:"
+    ) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           map.flyTo({
