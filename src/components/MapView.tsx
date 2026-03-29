@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import mapboxgl from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { CONFIG } from "@/config"
@@ -13,6 +13,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
   const overlayContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const overlayMapRef = useRef<mapboxgl.Map | null>(null)
+  const [overlayVisible, setOverlayVisible] = useState(true)
 
   const addUserPlotLayer = useCallback(
     async (map: mapboxgl.Map) => {
@@ -101,10 +102,7 @@ export function MapView({ onZoomChange }: MapViewProps) {
             id: "kartverket-topo",
             type: "raster",
             source: "kartverket-topo",
-            paint: {
-              "raster-contrast": 0.5,
-              "raster-brightness-min": 0.1,
-            },
+            paint: {},
           },
         ],
       },
@@ -133,7 +131,9 @@ export function MapView({ onZoomChange }: MapViewProps) {
     map.addControl(new mapboxgl.ScaleControl({ unit: "metric" }), "bottom-left")
 
     map.on("zoom", () => {
-      onZoomChange(map.getZoom())
+      const z = map.getZoom()
+      onZoomChange(z)
+      setOverlayVisible(z >= 13.5)
     })
 
     onZoomChange(CONFIG.defaultZoom)
@@ -193,7 +193,12 @@ export function MapView({ onZoomChange }: MapViewProps) {
       <div
         ref={overlayContainerRef}
         className="absolute inset-0 pointer-events-none"
-        style={{ mixBlendMode: "screen" }}
+        style={{
+          mixBlendMode: "screen",
+          filter: "invert(1)",
+          opacity: overlayVisible ? 1 : 0,
+          transition: "opacity 0.3s ease",
+        }}
       />
     </>
   )
