@@ -5,6 +5,16 @@ import { FloatingToolbar, type Tool } from "@/components/FloatingToolbar"
 import { PropertiesPanel } from "@/components/PropertiesPanel"
 import { SettingsDialog, hasValidToken } from "@/components/SettingsDialog"
 import { CONFIG } from "@/config"
+import {
+  DEFAULT_SHAPE,
+  DEFAULT_TEXT,
+  ZONE_PRESETS,
+  type ShapeProperties,
+  type TextProperties,
+  type ZoneCategory,
+} from "@/lib/zone-defaults"
+
+export type PanelMode = "shape" | "text" | "none"
 
 function App() {
   const [zoomLevel, setZoomLevel] = useState(CONFIG.defaultZoom)
@@ -14,6 +24,17 @@ function App() {
   const [canRedo, setCanRedo] = useState(false)
   const undoRef = useRef<(() => void) | null>(null)
   const redoRef = useRef<(() => void) | null>(null)
+
+  // Properties panel state
+  const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
+    ...DEFAULT_SHAPE,
+  })
+  const [textDefaults, setTextDefaults] = useState<TextProperties>({
+    ...DEFAULT_TEXT,
+  })
+  const [panelMode, setPanelMode] = useState<PanelMode>("none")
+  // Track whether we're showing defaults or editing a selection
+  const [isEditingSelection, setIsEditingSelection] = useState(false)
 
   // Auto-open settings on first visit if no token
   useEffect(() => {
@@ -43,6 +64,34 @@ function App() {
     redoRef.current?.()
   }, [])
 
+  const handleShapeChange = useCallback(
+    (partial: Partial<ShapeProperties>) => {
+      // If changing zone category, apply preset colors
+      if (partial.zone && !isEditingSelection) {
+        const preset = ZONE_PRESETS[partial.zone as ZoneCategory]
+        if (preset) {
+          setShapeDefaults((prev) => ({ ...prev, ...preset }))
+          return
+        }
+      }
+      setShapeDefaults((prev) => ({ ...prev, ...partial }))
+    },
+    [isEditingSelection]
+  )
+
+  const handleTextChange = useCallback((partial: Partial<TextProperties>) => {
+    setTextDefaults((prev) => ({ ...prev, ...partial }))
+  }, [])
+
+  // Determine panel visibility
+  const isDrawTool =
+    activeTool === "polygon" ||
+    activeTool === "rectangle" ||
+    activeTool === "circle"
+  const isTextTool = activeTool === "text"
+  const showPanel =
+    isDrawTool || isTextTool || panelMode !== "none"
+
   return (
     <div className="h-screen w-screen overflow-hidden relative">
       <TopBar
@@ -60,9 +109,22 @@ function App() {
         onUndoRedoChange={handleUndoRedoChange}
         undoRef={undoRef}
         redoRef={redoRef}
+        shapeDefaults={shapeDefaults}
+        textDefaults={textDefaults}
+        onShapeDefaultsChange={setShapeDefaults}
+        onTextDefaultsChange={setTextDefaults}
+        onPanelModeChange={setPanelMode}
+        onEditingSelectionChange={setIsEditingSelection}
       />
       <FloatingToolbar activeTool={activeTool} onToolChange={handleToolChange} />
-      <PropertiesPanel visible={false} />
+      <PropertiesPanel
+        visible={showPanel}
+        mode={isDrawTool ? "shape" : isTextTool ? "text" : panelMode}
+        shapeProps={shapeDefaults}
+        textProps={textDefaults}
+        onShapeChange={handleShapeChange}
+        onTextChange={handleTextChange}
+      />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )

@@ -13,6 +13,8 @@ import { UndoRedoHistory, type Snapshot } from "@/lib/history"
 import { polygonAreaSqm, centroid, formatArea } from "@/lib/measurement"
 import type { Tool } from "@/components/FloatingToolbar"
 import type { Position, Feature, Polygon } from "geojson"
+import type { ShapeProperties, TextProperties } from "@/lib/zone-defaults"
+import type { PanelMode } from "@/App"
 
 interface MapViewProps {
   onZoomChange: (zoom: number) => void
@@ -21,14 +23,12 @@ interface MapViewProps {
   onUndoRedoChange: (canUndo: boolean, canRedo: boolean) => void
   undoRef: React.MutableRefObject<(() => void) | null>
   redoRef: React.MutableRefObject<(() => void) | null>
-}
-
-const ZONE_DEFAULTS = {
-  fillColor: "#4ade80",
-  fillOpacity: 0.4,
-  strokeColor: "#4ade80",
-  strokeWidth: 2,
-  zone: "Lawn",
+  shapeDefaults: ShapeProperties
+  textDefaults: TextProperties
+  onShapeDefaultsChange: (props: ShapeProperties) => void
+  onTextDefaultsChange: (props: TextProperties) => void
+  onPanelModeChange: (mode: PanelMode) => void
+  onEditingSelectionChange: (editing: boolean) => void
 }
 
 interface ContextMenuState {
@@ -45,6 +45,12 @@ export function MapView({
   onUndoRedoChange,
   undoRef,
   redoRef,
+  shapeDefaults,
+  textDefaults,
+  onShapeDefaultsChange,
+  onTextDefaultsChange,
+  onPanelModeChange,
+  onEditingSelectionChange,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -53,6 +59,15 @@ export function MapView({
   const activeToolRef = useRef<Tool>(activeTool)
   const popupRef = useRef<mapboxgl.Popup | null>(null)
   const suppressModeSync = useRef(false)
+  const shapeDefaultsRef = useRef(shapeDefaults)
+  const textDefaultsRef = useRef(textDefaults)
+
+  useEffect(() => {
+    shapeDefaultsRef.current = shapeDefaults
+  }, [shapeDefaults])
+  useEffect(() => {
+    textDefaultsRef.current = textDefaults
+  }, [textDefaults])
 
   // Text features state
   const textFeaturesRef = useRef<Feature[]>([])
@@ -412,25 +427,14 @@ export function MapView({
 
     // Draw events
     map.on("draw.create", (e: { features: GeoJSON.Feature[] }) => {
+      const defaults = shapeDefaultsRef.current
       for (const feature of e.features) {
         const id = feature.id as string
-        draw.setFeatureProperty(id, "user_fillColor", ZONE_DEFAULTS.fillColor)
-        draw.setFeatureProperty(
-          id,
-          "user_fillOpacity",
-          ZONE_DEFAULTS.fillOpacity
-        )
-        draw.setFeatureProperty(
-          id,
-          "user_strokeColor",
-          ZONE_DEFAULTS.strokeColor
-        )
-        draw.setFeatureProperty(
-          id,
-          "user_strokeWidth",
-          ZONE_DEFAULTS.strokeWidth
-        )
-        draw.setFeatureProperty(id, "user_zone", ZONE_DEFAULTS.zone)
+        draw.setFeatureProperty(id, "user_fillColor", defaults.fillColor)
+        draw.setFeatureProperty(id, "user_fillOpacity", defaults.fillOpacity)
+        draw.setFeatureProperty(id, "user_strokeColor", defaults.strokeColor)
+        draw.setFeatureProperty(id, "user_strokeWidth", defaults.strokeWidth)
+        draw.setFeatureProperty(id, "user_zone", defaults.zone)
       }
       draw.set(draw.getAll())
       updateAreaLabels(map, draw)
@@ -464,7 +468,7 @@ export function MapView({
       }
     })
 
-    // Hide area labels while features are being moved
+    // Track selection and update properties panel
     map.on("draw.selectionchange", (e: { features: GeoJSON.Feature[] }) => {
       if (map.getLayer("area-labels")) {
         map.setLayoutProperty(
@@ -472,6 +476,28 @@ export function MapView({
           "visibility",
           e.features.length > 0 ? "none" : "visible"
         )
+      }
+      // Update panel with selected feature properties
+      if (e.features.length > 0) {
+        const f = e.features[0]
+        const props = f.properties || {}
+        onPanelModeChange("shape")
+        onEditingSelectionChange(true)
+        onShapeDefaultsChange({
+          fillColor: props.user_fillColor || "#4ade80",
+          fillOpacity: props.user_fillOpacity ?? 0.4,
+          strokeColor: props.user_strokeColor || "#4ade80",
+          strokeWidth: props.user_strokeWidth ?? 2,
+          zone: props.user_zone || "Lawn",
+        })
+      } else if (
+        activeToolRef.current === "select"
+      ) {
+        // Only clear if no text is selected either
+        if (selectedTextIdsRef.current.size === 0) {
+          onPanelModeChange("none")
+          onEditingSelectionChange(false)
+        }
       }
     })
 
@@ -504,6 +530,7 @@ export function MapView({
       if (textInputRef.current) return // already editing
 
       showTextInput(map, e.lngLat, "", (value) => {
+        const td = textDefaultsRef.current
         const id = crypto.randomUUID()
         const feature: Feature = {
           type: "Feature",
@@ -514,8 +541,8 @@ export function MapView({
           properties: {
             id,
             label: value,
-            textColor: "#ffffff",
-            fontSize: 16,
+            textColor: td.textColor,
+            fontSize: td.fontSize,
           },
         }
         textFeaturesRef.current = [...textFeaturesRef.current, feature]
@@ -544,19 +571,29 @@ export function MapView({
       if (textHits.length > 0) {
         const hitId = textHits[0].properties!.id as string
         if (e.originalEvent.shiftKey) {
-          // Toggle in selection
           if (selectedTextIdsRef.current.has(hitId)) {
             selectedTextIdsRef.current.delete(hitId)
           } else {
             selectedTextIdsRef.current.add(hitId)
           }
         } else {
-          // Single select — deselect draw features too
           selectedTextIdsRef.current.clear()
           selectedTextIdsRef.current.add(hitId)
           draw.changeMode("simple_select")
         }
         syncTextLabels(map)
+        // Populate panel with selected text properties
+        const feature = textFeaturesRef.current.find(
+          (f) => f.properties!.id === hitId
+        )
+        if (feature) {
+          onPanelModeChange("text")
+          onEditingSelectionChange(true)
+          onTextDefaultsChange({
+            textColor: feature.properties!.textColor || "#ffffff",
+            fontSize: feature.properties!.fontSize || 16,
+          })
+        }
         return
       }
 
@@ -564,6 +601,10 @@ export function MapView({
       if (selectedTextIdsRef.current.size > 0) {
         selectedTextIdsRef.current.clear()
         syncTextLabels(map)
+        if (draw.getSelectedIds().length === 0) {
+          onPanelModeChange("none")
+          onEditingSelectionChange(false)
+        }
       }
     })
 
@@ -749,6 +790,10 @@ export function MapView({
     onZoomChange,
     onUndoRedoChange,
     onToolChange,
+    onPanelModeChange,
+    onEditingSelectionChange,
+    onShapeDefaultsChange,
+    onTextDefaultsChange,
     addUserPlotLayer,
     updateAreaLabels,
     syncTextLabels,
@@ -805,6 +850,46 @@ export function MapView({
       }
     }
   }, [activeTool, removeTextInput])
+
+  // Live-edit selected shape features when shapeDefaults change
+  useEffect(() => {
+    const draw = drawRef.current
+    const map = mapRef.current
+    if (!draw || !map) return
+    const selectedIds = draw.getSelectedIds()
+    if (selectedIds.length === 0) return
+
+    for (const id of selectedIds) {
+      draw.setFeatureProperty(id, "user_fillColor", shapeDefaults.fillColor)
+      draw.setFeatureProperty(id, "user_fillOpacity", shapeDefaults.fillOpacity)
+      draw.setFeatureProperty(id, "user_strokeColor", shapeDefaults.strokeColor)
+      draw.setFeatureProperty(id, "user_strokeWidth", shapeDefaults.strokeWidth)
+      draw.setFeatureProperty(id, "user_zone", shapeDefaults.zone)
+    }
+    // Force re-render with updated properties
+    draw.set(draw.getAll())
+    updateAreaLabels(map, draw)
+  }, [shapeDefaults, updateAreaLabels])
+
+  // Live-edit selected text features when textDefaults change
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (selectedTextIdsRef.current.size === 0) return
+
+    textFeaturesRef.current = textFeaturesRef.current.map((f) => {
+      if (!selectedTextIdsRef.current.has(f.properties!.id)) return f
+      return {
+        ...f,
+        properties: {
+          ...f.properties!,
+          textColor: textDefaults.textColor,
+          fontSize: textDefaults.fontSize,
+        },
+      }
+    })
+    syncTextLabels(map)
+  }, [textDefaults, syncTextLabels])
 
   // Context menu actions
   const handleContextDelete = useCallback(() => {
