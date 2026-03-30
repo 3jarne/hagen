@@ -1,4 +1,4 @@
-import { MousePointer2, Square, Circle, Type } from "lucide-react"
+import { MousePointer2, Square, Circle, Type, Pen, Ruler } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import {
   Tooltip,
@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
-export type Tool = "select" | "polygon" | "rectangle" | "circle" | "text"
+export type Tool = "select" | "polygon" | "rectangle" | "circle" | "text" | "line" | "measure"
 
 const tools: { value: Tool; icon: (active: boolean) => React.ReactNode; label: string; shortcut: string }[] = [
   { value: "select", icon: (a) => <MousePointer2 className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Select / Move", shortcut: "V" },
@@ -20,6 +20,8 @@ const tools: { value: Tool; icon: (active: boolean) => React.ReactNode; label: s
   { value: "rectangle", icon: (a) => <Square className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Rectangle", shortcut: "R" },
   { value: "circle", icon: (a) => <Circle className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Circle", shortcut: "C" },
   { value: "text", icon: (a) => <Type className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Text label", shortcut: "T" },
+  { value: "line", icon: (a) => <Pen className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Line / Pen", shortcut: "L" },
+  { value: "measure", icon: (a) => <Ruler className={cn("h-5 w-5", a && "stroke-[2.5]")} />, label: "Measure", shortcut: "M" },
 ]
 
 function ToolButton({
@@ -85,11 +87,25 @@ export function FloatingToolbar({ activeTool, onToolChange }: FloatingToolbarPro
 
           <Separator orientation="vertical" className="mx-1.5 h-6" />
 
-          {/* Text tool */}
+          {/* Text and Line tools */}
           <ToolButton
             tool={tools[4]}
             isActive={activeTool === "text"}
             onClick={() => onToolChange("text")}
+          />
+          <ToolButton
+            tool={tools[5]}
+            isActive={activeTool === "line"}
+            onClick={() => onToolChange("line")}
+          />
+
+          <Separator orientation="vertical" className="mx-1.5 h-6" />
+
+          {/* Measure tool */}
+          <ToolButton
+            tool={tools[6]}
+            isActive={activeTool === "measure"}
+            onClick={() => onToolChange("measure")}
           />
         </div>
       </TooltipProvider>

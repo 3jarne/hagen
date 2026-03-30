@@ -13,7 +13,9 @@ import { UndoRedoHistory, type Snapshot } from "@/lib/history"
 import { polygonAreaSqm, centroid, formatArea } from "@/lib/measurement"
 import type { Tool } from "@/components/FloatingToolbar"
 import type { Position, Feature, Polygon } from "geojson"
-import type { ShapeProperties, TextProperties } from "@/lib/zone-defaults"
+import type { ShapeProperties, TextProperties, LineProperties } from "@/lib/zone-defaults"
+import { distanceMeters, formatDistance } from "@/lib/measurement"
+import { simplify } from "@/lib/simplify"
 import type { PanelMode, MapStyle } from "@/App"
 
 const STORAGE_KEY = "hageplan-project"
@@ -21,6 +23,7 @@ const STORAGE_KEY = "hageplan-project"
 interface SavedProject {
   drawFeatures: Feature[]
   textFeatures: Feature[]
+  lineFeatures?: Feature[]
 }
 
 interface MapViewProps {
@@ -32,8 +35,10 @@ interface MapViewProps {
   redoRef: React.MutableRefObject<(() => void) | null>
   shapeDefaults: ShapeProperties
   textDefaults: TextProperties
+  lineDefaults: LineProperties
   onShapeDefaultsChange: (props: ShapeProperties) => void
   onTextDefaultsChange: (props: TextProperties) => void
+  onLineDefaultsChange: (props: LineProperties) => void
   onPanelModeChange: (mode: PanelMode) => void
   onEditingSelectionChange: (editing: boolean) => void
   exportJSONRef: React.MutableRefObject<(() => void) | null>
@@ -62,8 +67,10 @@ export function MapView({
   redoRef,
   shapeDefaults,
   textDefaults,
+  lineDefaults,
   onShapeDefaultsChange,
   onTextDefaultsChange,
+  onLineDefaultsChange,
   onPanelModeChange,
   onEditingSelectionChange,
   exportJSONRef,
@@ -84,6 +91,7 @@ export function MapView({
   const suppressModeSync = useRef(false)
   const shapeDefaultsRef = useRef(shapeDefaults)
   const textDefaultsRef = useRef(textDefaults)
+  const lineDefaultsRef = useRef(lineDefaults)
 
   useEffect(() => {
     shapeDefaultsRef.current = shapeDefaults
@@ -91,6 +99,9 @@ export function MapView({
   useEffect(() => {
     textDefaultsRef.current = textDefaults
   }, [textDefaults])
+  useEffect(() => {
+    lineDefaultsRef.current = lineDefaults
+  }, [lineDefaults])
 
   // Text features state
   const textFeaturesRef = useRef<Feature[]>([])
@@ -103,6 +114,18 @@ export function MapView({
     id: string
     startLngLat: { lng: number; lat: number }
   } | null>(null)
+
+  // Line features state
+  const lineFeaturesRef = useRef<Feature[]>([])
+  const selectedLineIdsRef = useRef<Set<string>>(new Set())
+  const drawingLineRef = useRef<Position[] | null>(null)
+  const freehandPointsRef = useRef<Position[]>([])
+  const lineMouseDownRef = useRef<{ time: number; point: [number, number] } | null>(null)
+  const isDraggingLineRef = useRef(false)
+
+  // Measurement state (ephemeral)
+  const measurePointsRef = useRef<Position[]>([])
+  const measureFinishedRef = useRef(false)
 
   // Auto-save
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -124,6 +147,7 @@ export function MapView({
       const project: SavedProject = {
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
       }
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(project))
@@ -293,6 +317,149 @@ export function MapView({
     [buildAreaLabels]
   )
 
+  /** Sync line features to map GeoJSON source, including arrow point features */
+  const syncLineFeatures = useCallback((map: mapboxgl.Map) => {
+    const source = map.getSource("line-features") as mapboxgl.GeoJSONSource
+    if (!source) return
+    const features: Feature[] = []
+    for (const f of lineFeaturesRef.current) {
+      const coords = (f.geometry as GeoJSON.LineString).coordinates
+      const selected = selectedLineIdsRef.current.has(f.properties!.id)
+      features.push({
+        ...f,
+        properties: { ...f.properties, selected },
+      })
+      // Arrow point features
+      if (coords.length >= 2) {
+        if (f.properties!.startArrow) {
+          const p0 = coords[0]
+          const p1 = coords[1]
+          const bearing = Math.atan2(p0[0] - p1[0], p0[1] - p1[1]) * (180 / Math.PI)
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: p0 },
+            properties: { bearing, strokeColor: f.properties!.strokeColor, arrowType: "start" },
+          })
+        }
+        if (f.properties!.endArrow) {
+          const pLast = coords[coords.length - 1]
+          const pPrev = coords[coords.length - 2]
+          const bearing = Math.atan2(pLast[0] - pPrev[0], pLast[1] - pPrev[1]) * (180 / Math.PI)
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: pLast },
+            properties: { bearing, strokeColor: f.properties!.strokeColor, arrowType: "end" },
+          })
+        }
+      }
+    }
+    source.setData({ type: "FeatureCollection", features })
+
+    // Update selection bbox for lines
+    const bboxSource = map.getSource("line-selection-bbox") as mapboxgl.GeoJSONSource
+    if (bboxSource) {
+      if (selectedLineIdsRef.current.size === 0) {
+        bboxSource.setData({ type: "FeatureCollection", features: [] })
+      } else {
+        const dots: Feature[] = []
+        for (const id of selectedLineIdsRef.current) {
+          const lineF = lineFeaturesRef.current.find(lf => lf.properties!.id === id)
+          if (!lineF) continue
+          const coords = (lineF.geometry as GeoJSON.LineString).coordinates
+          for (const c of coords) {
+            dots.push({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: c },
+              properties: {},
+            })
+          }
+        }
+        bboxSource.setData({ type: "FeatureCollection", features: dots })
+      }
+    }
+  }, [])
+
+  /** Sync measurement overlay */
+  const syncMeasurement = useCallback((map: mapboxgl.Map, cursorPos?: Position) => {
+    const source = map.getSource("measurement-overlay") as mapboxgl.GeoJSONSource
+    if (!source) return
+    const pts = measurePointsRef.current
+    const features: Feature[] = []
+
+    // Include cursor position for live preview
+    const allPts = cursorPos && !measureFinishedRef.current ? [...pts, cursorPos] : pts
+
+    if (allPts.length === 0) {
+      source.setData({ type: "FeatureCollection", features: [] })
+      return
+    }
+
+    // Point dots
+    for (const p of pts) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: p },
+        properties: { type: "dot" },
+      })
+    }
+
+    // Line segments with distance labels
+    if (allPts.length >= 2) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: allPts },
+        properties: { type: "line" },
+      })
+
+      // Segment midpoint labels
+      let totalDist = 0
+      for (let i = 1; i < allPts.length; i++) {
+        const d = distanceMeters(allPts[i - 1], allPts[i])
+        totalDist += d
+        const mid: Position = [
+          (allPts[i - 1][0] + allPts[i][0]) / 2,
+          (allPts[i - 1][1] + allPts[i][1]) / 2,
+        ]
+        features.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: mid },
+          properties: { type: "label", label: formatDistance(d) },
+        })
+      }
+
+      // Total distance label at last point
+      if (allPts.length >= 3) {
+        features.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: allPts[allPts.length - 1] },
+          properties: { type: "total", label: `Total: ${formatDistance(totalDist)}` },
+        })
+      }
+
+      // Area if 3+ confirmed points
+      if (pts.length >= 3) {
+        // Closing line
+        features.push({
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: [pts[pts.length - 1], pts[0]] },
+          properties: { type: "closing-line" },
+        })
+        const ring = [...pts, pts[0]]
+        const area = polygonAreaSqm(ring)
+        if (area >= 0.1) {
+          const center = centroid(ring)
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: center },
+            properties: { type: "area-label", label: formatArea(area) },
+          })
+        }
+      }
+    }
+
+    source.setData({ type: "FeatureCollection", features })
+  }, [])
+
   /** Push current state to history */
   const pushHistory = useCallback(() => {
     const draw = drawRef.current
@@ -301,6 +468,7 @@ export function MapView({
     history.push({
       drawFeatures: draw.getAll().features,
       textFeatures: [...textFeaturesRef.current],
+      lineFeatures: [...lineFeaturesRef.current],
     })
     saveToStorage()
   }, [saveToStorage])
@@ -315,12 +483,15 @@ export function MapView({
         draw.add(feature)
       }
       textFeaturesRef.current = [...snapshot.textFeatures]
+      lineFeaturesRef.current = [...(snapshot.lineFeatures || [])]
       selectedTextIdsRef.current.clear()
+      selectedLineIdsRef.current.clear()
       syncTextLabels(map)
+      syncLineFeatures(map)
       updateAreaLabels(map, draw)
       saveToStorage()
     },
-    [updateAreaLabels, syncTextLabels, saveToStorage]
+    [updateAreaLabels, syncTextLabels, syncLineFeatures, saveToStorage]
   )
 
   const handleUndo = useCallback(() => {
@@ -585,6 +756,148 @@ export function MapView({
         },
       })
 
+      // Arrow head image for line tool
+      const arrowSize = 24
+      const arrowCanvas = document.createElement("canvas")
+      arrowCanvas.width = arrowSize
+      arrowCanvas.height = arrowSize
+      const arrowCtx = arrowCanvas.getContext("2d")!
+      arrowCtx.fillStyle = "#ffffff"
+      arrowCtx.beginPath()
+      arrowCtx.moveTo(arrowSize / 2, 0)
+      arrowCtx.lineTo(arrowSize, arrowSize)
+      arrowCtx.lineTo(arrowSize / 2, arrowSize * 0.7)
+      arrowCtx.lineTo(0, arrowSize)
+      arrowCtx.closePath()
+      arrowCtx.fill()
+      const arrowImageData = arrowCtx.getImageData(0, 0, arrowSize, arrowSize)
+      map.addImage("arrow-head", { width: arrowSize, height: arrowSize, data: arrowImageData.data as unknown as Uint8Array }, { sdf: true })
+
+      // Line features source + layers
+      map.addSource("line-features", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      })
+      map.addLayer({
+        id: "line-features-stroke",
+        type: "line",
+        source: "line-features",
+        filter: ["==", "$type", "LineString"],
+        paint: {
+          "line-color": ["coalesce", ["get", "strokeColor"], "#ffffff"],
+          "line-width": ["coalesce", ["get", "strokeWidth"], 2],
+        },
+        layout: { "line-cap": "round", "line-join": "round" },
+      })
+      map.addLayer({
+        id: "line-features-arrows",
+        type: "symbol",
+        source: "line-features",
+        filter: ["has", "arrowType"],
+        layout: {
+          "icon-image": "arrow-head",
+          "icon-size": 0.6,
+          "icon-rotate": ["get", "bearing"],
+          "icon-allow-overlap": true,
+          "icon-rotation-alignment": "map",
+        },
+        paint: {
+          "icon-color": ["coalesce", ["get", "strokeColor"], "#ffffff"],
+        },
+      })
+
+      // Line selection bbox (vertex dots)
+      map.addSource("line-selection-bbox", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      })
+      map.addLayer({
+        id: "line-selection-bbox-dots",
+        type: "circle",
+        source: "line-selection-bbox",
+        paint: {
+          "circle-radius": 4,
+          "circle-color": "#ffffff",
+          "circle-stroke-color": "#93c5fd",
+          "circle-stroke-width": 1.5,
+        },
+      })
+
+      // Line drawing preview
+      map.addSource("line-drawing-preview", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      })
+      map.addLayer({
+        id: "line-drawing-preview",
+        type: "line",
+        source: "line-drawing-preview",
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": 2,
+          "line-dasharray": [4, 3],
+        },
+        layout: { "line-cap": "round", "line-join": "round" },
+      })
+
+      // Measurement overlay source + layers
+      map.addSource("measurement-overlay", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      })
+      map.addLayer({
+        id: "measurement-lines",
+        type: "line",
+        source: "measurement-overlay",
+        filter: ["==", ["get", "type"], "line"],
+        paint: {
+          "line-color": "#fbbf24",
+          "line-width": 2,
+        },
+        layout: { "line-cap": "round" },
+      })
+      map.addLayer({
+        id: "measurement-closing-line",
+        type: "line",
+        source: "measurement-overlay",
+        filter: ["==", ["get", "type"], "closing-line"],
+        paint: {
+          "line-color": "#fbbf24",
+          "line-width": 1.5,
+          "line-dasharray": [4, 3],
+        },
+      })
+      map.addLayer({
+        id: "measurement-points",
+        type: "circle",
+        source: "measurement-overlay",
+        filter: ["==", ["get", "type"], "dot"],
+        paint: {
+          "circle-radius": 5,
+          "circle-color": "#fbbf24",
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2,
+        },
+      })
+      map.addLayer({
+        id: "measurement-labels",
+        type: "symbol",
+        source: "measurement-overlay",
+        filter: ["in", ["get", "type"], ["literal", ["label", "total", "area-label"]]],
+        layout: {
+          "text-field": ["get", "label"],
+          "text-size": 13,
+          "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+          "text-allow-overlap": true,
+          "text-offset": [0, -1.2],
+        },
+        paint: {
+          "text-color": "#fbbf24",
+          "text-halo-color": "#000000",
+          "text-halo-width": 1.5,
+        },
+      })
+
       // Recalculate text bbox on map move/zoom
       map.on("move", () => {
         if (selectedTextIdsRef.current.size > 0) {
@@ -598,8 +911,8 @@ export function MapView({
         const raw = localStorage.getItem(STORAGE_KEY)
         if (raw) {
           const saved: SavedProject = JSON.parse(raw)
-          if (saved.drawFeatures?.length || saved.textFeatures?.length) {
-            for (const feature of saved.drawFeatures) {
+          if (saved.drawFeatures?.length || saved.textFeatures?.length || saved.lineFeatures?.length) {
+            for (const feature of saved.drawFeatures || []) {
               // Migrate old user_-prefixed property names
               if (feature.properties) {
                 for (const key of Object.keys(feature.properties)) {
@@ -612,7 +925,9 @@ export function MapView({
               draw.add(feature)
             }
             textFeaturesRef.current = saved.textFeatures || []
+            lineFeaturesRef.current = saved.lineFeatures || []
             syncTextLabels(map)
+            syncLineFeatures(map)
             updateAreaLabels(map, draw)
             loaded = true
           }
@@ -624,6 +939,7 @@ export function MapView({
       history.push({
         drawFeatures: loaded ? draw.getAll().features : [],
         textFeatures: loaded ? [...textFeaturesRef.current] : [],
+        lineFeatures: loaded ? [...lineFeaturesRef.current] : [],
       })
     })
 
@@ -648,6 +964,7 @@ export function MapView({
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
       })
       saveToStorageRef.current?.()
     })
@@ -657,6 +974,7 @@ export function MapView({
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
       })
       saveToStorageRef.current?.()
     })
@@ -666,6 +984,7 @@ export function MapView({
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
       })
       saveToStorageRef.current?.()
     })
@@ -673,7 +992,7 @@ export function MapView({
     // Auto-switch tool to select after shape completion (not text tool)
     map.on("draw.modechange", (e: { mode: string }) => {
       if (suppressModeSync.current) return
-      if (e.mode === "simple_select" && activeToolRef.current !== "select" && activeToolRef.current !== "text") {
+      if (e.mode === "simple_select" && activeToolRef.current !== "select" && activeToolRef.current !== "text" && activeToolRef.current !== "line" && activeToolRef.current !== "measure") {
         onToolChange("select")
       }
     })
@@ -770,6 +1089,7 @@ export function MapView({
         history.push({
           drawFeatures: draw.getAll().features,
           textFeatures: [...textFeaturesRef.current],
+          lineFeatures: [...lineFeaturesRef.current],
         })
         saveToStorageRef.current?.()
       }, { fontSize: td.fontSize, textColor: td.textColor })
@@ -818,11 +1138,41 @@ export function MapView({
         return
       }
 
-      // Click on empty space — deselect text
-      if (selectedTextIdsRef.current.size > 0) {
+      // Check line hits
+      const lineHits = map.queryRenderedFeatures(e.point, {
+        layers: map.getLayer("line-features-stroke") ? ["line-features-stroke"] : [],
+      })
+      if (lineHits.length > 0) {
+        const hitId = lineHits[0].properties!.id as string
+        if (hitId) {
+          selectedLineIdsRef.current.clear()
+          selectedLineIdsRef.current.add(hitId)
+          selectedTextIdsRef.current.clear()
+          draw.changeMode("simple_select")
+          syncTextLabels(map)
+          syncLineFeatures(map)
+          const lineFeature = lineFeaturesRef.current.find(f => f.properties!.id === hitId)
+          if (lineFeature) {
+            onPanelModeChange("line")
+            onEditingSelectionChange(true)
+            onLineDefaultsChange({
+              strokeColor: lineFeature.properties!.strokeColor || "#ffffff",
+              strokeWidth: lineFeature.properties!.strokeWidth ?? 2,
+              startArrow: lineFeature.properties!.startArrow || false,
+              endArrow: lineFeature.properties!.endArrow || false,
+            })
+          }
+          return
+        }
+      }
+
+      // Click on empty space — deselect text and lines
+      if (selectedTextIdsRef.current.size > 0 || selectedLineIdsRef.current.size > 0) {
         if (justConfirmedTextRef.current) return
         selectedTextIdsRef.current.clear()
+        selectedLineIdsRef.current.clear()
         syncTextLabels(map)
+        syncLineFeatures(map)
         if (draw.getSelectedIds().length === 0) {
           onPanelModeChange("none")
           onEditingSelectionChange(false)
@@ -863,11 +1213,203 @@ export function MapView({
           history.push({
             drawFeatures: draw.getAll().features,
             textFeatures: [...textFeaturesRef.current],
+            lineFeatures: [...lineFeaturesRef.current],
           })
           saveToStorageRef.current?.()
         },
         { fontSize: props.fontSize, textColor: props.textColor }
       )
+    })
+
+    // Line tool: mousedown to start tracking click vs drag
+    map.on("mousedown", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "line") return
+      if (textInputRef.current) return
+      lineMouseDownRef.current = {
+        time: Date.now(),
+        point: [e.point.x, e.point.y],
+      }
+      isDraggingLineRef.current = false
+      freehandPointsRef.current = [[e.lngLat.lng, e.lngLat.lat]]
+    })
+
+    // Line tool + Measure tool: mousemove
+    map.on("mousemove", (e: mapboxgl.MapMouseEvent) => {
+      // Line tool: freehand or preview
+      if (activeToolRef.current === "line") {
+        const md = lineMouseDownRef.current
+        if (md) {
+          const dx = e.point.x - md.point[0]
+          const dy = e.point.y - md.point[1]
+          if (!isDraggingLineRef.current && Math.sqrt(dx * dx + dy * dy) > 5) {
+            isDraggingLineRef.current = true
+            map.dragPan.disable()
+          }
+          if (isDraggingLineRef.current) {
+            freehandPointsRef.current.push([e.lngLat.lng, e.lngLat.lat])
+            // Update preview with freehand path
+            const previewSource = map.getSource("line-drawing-preview") as mapboxgl.GeoJSONSource
+            if (previewSource) {
+              previewSource.setData({
+                type: "FeatureCollection",
+                features: [{
+                  type: "Feature",
+                  geometry: { type: "LineString", coordinates: freehandPointsRef.current },
+                  properties: {},
+                }],
+              })
+            }
+          }
+        }
+        // Preview line from last polyline point to cursor
+        if (!md && drawingLineRef.current && drawingLineRef.current.length > 0) {
+          const previewSource = map.getSource("line-drawing-preview") as mapboxgl.GeoJSONSource
+          if (previewSource) {
+            previewSource.setData({
+              type: "FeatureCollection",
+              features: [{
+                type: "Feature",
+                geometry: {
+                  type: "LineString",
+                  coordinates: [...drawingLineRef.current, [e.lngLat.lng, e.lngLat.lat]],
+                },
+                properties: {},
+              }],
+            })
+          }
+        }
+      }
+
+      // Measure tool: live preview
+      if (activeToolRef.current === "measure" && measurePointsRef.current.length > 0 && !measureFinishedRef.current) {
+        syncMeasurement(map, [e.lngLat.lng, e.lngLat.lat])
+      }
+    })
+
+    // Line tool: mouseup — finish freehand or register click
+    map.on("mouseup", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "line") return
+      const md = lineMouseDownRef.current
+      if (!md) return
+      lineMouseDownRef.current = null
+      map.dragPan.enable()
+
+      if (isDraggingLineRef.current) {
+        // Finish freehand drawing
+        isDraggingLineRef.current = false
+        const simplified = simplify(freehandPointsRef.current, 0.00005)
+        freehandPointsRef.current = []
+        if (simplified.length < 2) return
+        const ld = lineDefaultsRef.current
+        const id = crypto.randomUUID()
+        const feature: Feature = {
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: simplified },
+          properties: {
+            id,
+            strokeColor: ld.strokeColor,
+            strokeWidth: ld.strokeWidth,
+            startArrow: ld.startArrow,
+            endArrow: ld.endArrow,
+          },
+        }
+        lineFeaturesRef.current = [...lineFeaturesRef.current, feature]
+        selectedLineIdsRef.current.clear()
+        selectedLineIdsRef.current.add(id)
+        syncLineFeatures(map)
+        // Clear preview
+        const previewSource = map.getSource("line-drawing-preview") as mapboxgl.GeoJSONSource
+        if (previewSource) previewSource.setData({ type: "FeatureCollection", features: [] })
+        onToolChange("select")
+        onPanelModeChange("line")
+        onEditingSelectionChange(true)
+        onLineDefaultsChange(ld)
+        history.push({
+          drawFeatures: draw.getAll().features,
+          textFeatures: [...textFeaturesRef.current],
+          lineFeatures: [...lineFeaturesRef.current],
+        })
+        saveToStorageRef.current?.()
+        return
+      }
+
+      // Click (not drag) — polyline mode
+      const point: Position = [e.lngLat.lng, e.lngLat.lat]
+      if (!drawingLineRef.current) {
+        drawingLineRef.current = [point]
+      } else {
+        drawingLineRef.current.push(point)
+      }
+    })
+
+    // Line tool: double-click to finish polyline
+    map.on("dblclick", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "line") {
+        // Measure tool double-click
+        if (activeToolRef.current === "measure" && measurePointsRef.current.length >= 2) {
+          e.preventDefault()
+          // Remove duplicate last point from double-click
+          measurePointsRef.current.pop()
+          measureFinishedRef.current = true
+          syncMeasurement(map)
+          return
+        }
+        return
+      }
+      e.preventDefault()
+      if (!drawingLineRef.current) return
+      // Remove duplicate last point (double-click fires two clicks first)
+      if (drawingLineRef.current.length > 1) {
+        drawingLineRef.current.pop()
+      }
+      if (drawingLineRef.current.length < 2) {
+        drawingLineRef.current = null
+        const previewSource = map.getSource("line-drawing-preview") as mapboxgl.GeoJSONSource
+        if (previewSource) previewSource.setData({ type: "FeatureCollection", features: [] })
+        return
+      }
+      const ld = lineDefaultsRef.current
+      const id = crypto.randomUUID()
+      const feature: Feature = {
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: drawingLineRef.current },
+        properties: {
+          id,
+          strokeColor: ld.strokeColor,
+          strokeWidth: ld.strokeWidth,
+          startArrow: ld.startArrow,
+          endArrow: ld.endArrow,
+        },
+      }
+      lineFeaturesRef.current = [...lineFeaturesRef.current, feature]
+      drawingLineRef.current = null
+      selectedLineIdsRef.current.clear()
+      selectedLineIdsRef.current.add(id)
+      syncLineFeatures(map)
+      const previewSource = map.getSource("line-drawing-preview") as mapboxgl.GeoJSONSource
+      if (previewSource) previewSource.setData({ type: "FeatureCollection", features: [] })
+      onToolChange("select")
+      onPanelModeChange("line")
+      onEditingSelectionChange(true)
+      onLineDefaultsChange(ld)
+      history.push({
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
+      })
+      saveToStorageRef.current?.()
+    })
+
+    // Measure tool: click to add points
+    map.on("click", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "measure") return
+      if (measureFinishedRef.current) {
+        // Start new measurement
+        measurePointsRef.current = []
+        measureFinishedRef.current = false
+      }
+      measurePointsRef.current.push([e.lngLat.lng, e.lngLat.lat])
+      syncMeasurement(map)
     })
 
     // Right-click context menu
@@ -978,6 +1520,7 @@ export function MapView({
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
       })
       saveToStorageRef.current?.()
     })
@@ -1023,7 +1566,10 @@ export function MapView({
     addUserPlotLayer,
     updateAreaLabels,
     syncTextLabels,
+    syncLineFeatures,
+    syncMeasurement,
     showTextInput,
+    onLineDefaultsChange,
   ])
 
   // Sync active tool to draw mode + manage dragPan
@@ -1040,6 +1586,24 @@ export function MapView({
     popupRef.current?.remove()
     removeTextInput()
     setContextMenu(null)
+
+    // Cancel any in-progress line drawing when switching away from line tool
+    if (activeTool !== "line") {
+      drawingLineRef.current = null
+      lineMouseDownRef.current = null
+      isDraggingLineRef.current = false
+      freehandPointsRef.current = []
+      const previewSource = map.getSource("line-drawing-preview") as mapboxgl.GeoJSONSource
+      if (previewSource) previewSource.setData({ type: "FeatureCollection", features: [] })
+    }
+
+    // Clear measurement when switching away from measure tool
+    if (activeTool !== "measure") {
+      measurePointsRef.current = []
+      measureFinishedRef.current = false
+      const measSource = map.getSource("measurement-overlay") as mapboxgl.GeoJSONSource
+      if (measSource) measSource.setData({ type: "FeatureCollection", features: [] })
+    }
 
     // Suppress mode sync to prevent feedback loop
     suppressModeSync.current = true
@@ -1064,6 +1628,16 @@ export function MapView({
         draw.changeMode("simple_select")
         map.dragPan.enable()
         break
+      case "line":
+        draw.changeMode("simple_select")
+        map.dragPan.enable()
+        selectedLineIdsRef.current.clear()
+        syncLineFeatures(map)
+        break
+      case "measure":
+        draw.changeMode("simple_select")
+        map.dragPan.enable()
+        break
     }
     // Re-enable mode sync after a tick
     requestAnimationFrame(() => {
@@ -1075,7 +1649,7 @@ export function MapView({
         map.dragPan.enable()
       }
     }
-  }, [activeTool, removeTextInput])
+  }, [activeTool, removeTextInput, syncLineFeatures])
 
   // Live-edit selected shape features when shapeDefaults change
   useEffect(() => {
@@ -1123,6 +1697,29 @@ export function MapView({
     saveToStorage()
   }, [textDefaults, syncTextLabels, saveToStorage])
 
+  // Live-edit selected line features when lineDefaults change
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (selectedLineIdsRef.current.size === 0) return
+
+    lineFeaturesRef.current = lineFeaturesRef.current.map((f) => {
+      if (!selectedLineIdsRef.current.has(f.properties!.id)) return f
+      return {
+        ...f,
+        properties: {
+          ...f.properties!,
+          strokeColor: lineDefaults.strokeColor,
+          strokeWidth: lineDefaults.strokeWidth,
+          startArrow: lineDefaults.startArrow,
+          endArrow: lineDefaults.endArrow,
+        },
+      }
+    })
+    syncLineFeatures(map)
+    saveToStorage()
+  }, [lineDefaults, syncLineFeatures, saveToStorage])
+
   // Export functions
   const handleExportJSON = useCallback(() => {
     const draw = drawRef.current
@@ -1130,6 +1727,7 @@ export function MapView({
     const project: SavedProject = {
       drawFeatures: draw.getAll().features,
       textFeatures: [...textFeaturesRef.current],
+      lineFeatures: [...lineFeaturesRef.current],
     }
     const blob = new Blob([JSON.stringify(project, null, 2)], {
       type: "application/json",
@@ -1191,6 +1789,7 @@ export function MapView({
     const draw = drawRef.current
     const drawFeatures = draw ? draw.getAll().features : []
     const textFeatures = [...textFeaturesRef.current]
+    const lineFeatures = [...lineFeaturesRef.current]
     const center = map.getCenter()
     const zoom = map.getZoom()
 
@@ -1303,6 +1902,134 @@ export function MapView({
         })
       }
 
+      // Re-add line features layers
+      if (!map.getSource("line-features")) {
+        // Re-add arrow image
+        const ac = document.createElement("canvas")
+        ac.width = 24; ac.height = 24
+        const actx = ac.getContext("2d")!
+        actx.fillStyle = "#ffffff"
+        actx.beginPath()
+        actx.moveTo(12, 0); actx.lineTo(24, 24); actx.lineTo(12, 16.8); actx.lineTo(0, 24)
+        actx.closePath(); actx.fill()
+        const aid = actx.getImageData(0, 0, 24, 24)
+        if (!map.hasImage("arrow-head")) map.addImage("arrow-head", { width: 24, height: 24, data: aid.data as unknown as Uint8Array }, { sdf: true })
+
+        map.addSource("line-features", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        })
+        map.addLayer({
+          id: "line-features-stroke",
+          type: "line",
+          source: "line-features",
+          filter: ["==", "$type", "LineString"],
+          paint: {
+            "line-color": ["coalesce", ["get", "strokeColor"], "#ffffff"],
+            "line-width": ["coalesce", ["get", "strokeWidth"], 2],
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        })
+        map.addLayer({
+          id: "line-features-arrows",
+          type: "symbol",
+          source: "line-features",
+          filter: ["has", "arrowType"],
+          layout: {
+            "icon-image": "arrow-head",
+            "icon-size": 0.6,
+            "icon-rotate": ["get", "bearing"],
+            "icon-allow-overlap": true,
+            "icon-rotation-alignment": "map",
+          },
+          paint: {
+            "icon-color": ["coalesce", ["get", "strokeColor"], "#ffffff"],
+          },
+        })
+      }
+
+      // Re-add line selection bbox
+      if (!map.getSource("line-selection-bbox")) {
+        map.addSource("line-selection-bbox", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        })
+        map.addLayer({
+          id: "line-selection-bbox-dots",
+          type: "circle",
+          source: "line-selection-bbox",
+          paint: {
+            "circle-radius": 4,
+            "circle-color": "#ffffff",
+            "circle-stroke-color": "#93c5fd",
+            "circle-stroke-width": 1.5,
+          },
+        })
+      }
+
+      // Re-add line drawing preview
+      if (!map.getSource("line-drawing-preview")) {
+        map.addSource("line-drawing-preview", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        })
+        map.addLayer({
+          id: "line-drawing-preview",
+          type: "line",
+          source: "line-drawing-preview",
+          paint: {
+            "line-color": "#ffffff",
+            "line-width": 2,
+            "line-dasharray": [4, 3],
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        })
+      }
+
+      // Re-add measurement overlay
+      if (!map.getSource("measurement-overlay")) {
+        map.addSource("measurement-overlay", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        })
+        map.addLayer({
+          id: "measurement-lines",
+          type: "line",
+          source: "measurement-overlay",
+          filter: ["==", ["get", "type"], "line"],
+          paint: { "line-color": "#fbbf24", "line-width": 2 },
+          layout: { "line-cap": "round" },
+        })
+        map.addLayer({
+          id: "measurement-closing-line",
+          type: "line",
+          source: "measurement-overlay",
+          filter: ["==", ["get", "type"], "closing-line"],
+          paint: { "line-color": "#fbbf24", "line-width": 1.5, "line-dasharray": [4, 3] },
+        })
+        map.addLayer({
+          id: "measurement-points",
+          type: "circle",
+          source: "measurement-overlay",
+          filter: ["==", ["get", "type"], "dot"],
+          paint: { "circle-radius": 5, "circle-color": "#fbbf24", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 },
+        })
+        map.addLayer({
+          id: "measurement-labels",
+          type: "symbol",
+          source: "measurement-overlay",
+          filter: ["in", ["get", "type"], ["literal", ["label", "total", "area-label"]]],
+          layout: {
+            "text-field": ["get", "label"],
+            "text-size": 13,
+            "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+            "text-allow-overlap": true,
+            "text-offset": [0, -1.2],
+          },
+          paint: { "text-color": "#fbbf24", "text-halo-color": "#000000", "text-halo-width": 1.5 },
+        })
+      }
+
       // Restore user plot layer
       addUserPlotLayer(map)
 
@@ -1313,9 +2040,11 @@ export function MapView({
         }
       }
 
-      // Restore text features
+      // Restore text and line features
       textFeaturesRef.current = textFeatures
+      lineFeaturesRef.current = lineFeatures
       syncTextLabels(map)
+      syncLineFeatures(map)
       if (draw) updateAreaLabels(map, draw)
 
       // Restore view
@@ -1445,6 +2174,53 @@ export function MapView({
           case "t":
             onToolChange("text")
             return
+          case "l":
+            onToolChange("line")
+            return
+          case "m":
+            onToolChange("measure")
+            return
+          case "enter": {
+            const map = mapRef.current
+            if (!map) return
+            // Finish polyline drawing
+            if (activeToolRef.current === "line" && drawingLineRef.current && drawingLineRef.current.length >= 2) {
+              const ld = lineDefaultsRef.current
+              const id = crypto.randomUUID()
+              const feature: Feature = {
+                type: "Feature",
+                geometry: { type: "LineString", coordinates: drawingLineRef.current },
+                properties: {
+                  id,
+                  strokeColor: ld.strokeColor,
+                  strokeWidth: ld.strokeWidth,
+                  startArrow: ld.startArrow,
+                  endArrow: ld.endArrow,
+                },
+              }
+              lineFeaturesRef.current = [...lineFeaturesRef.current, feature]
+              drawingLineRef.current = null
+              selectedLineIdsRef.current.clear()
+              selectedLineIdsRef.current.add(id)
+              syncLineFeatures(map)
+              const previewSource = map.getSource("line-drawing-preview") as mapboxgl.GeoJSONSource
+              if (previewSource) previewSource.setData({ type: "FeatureCollection", features: [] })
+              onToolChange("select")
+              onPanelModeChange("line")
+              onEditingSelectionChange(true)
+              onLineDefaultsChange(ld)
+              pushHistory()
+              saveToStorageRef.current?.()
+              return
+            }
+            // Finish measurement
+            if (activeToolRef.current === "measure" && measurePointsRef.current.length >= 2) {
+              measureFinishedRef.current = true
+              syncMeasurement(map)
+              return
+            }
+            return
+          }
           case "escape": {
             setContextMenu(null)
             removeTextInput()
@@ -1454,9 +2230,29 @@ export function MapView({
               draw.trash()
               draw.changeMode("simple_select")
             }
+            // Cancel line drawing
+            if (map) {
+              drawingLineRef.current = null
+              lineMouseDownRef.current = null
+              isDraggingLineRef.current = false
+              freehandPointsRef.current = []
+              const previewSource = map.getSource("line-drawing-preview") as mapboxgl.GeoJSONSource
+              if (previewSource) previewSource.setData({ type: "FeatureCollection", features: [] })
+              map.dragPan.enable()
+
+              // Clear measurement
+              measurePointsRef.current = []
+              measureFinishedRef.current = false
+              const measSource = map.getSource("measurement-overlay") as mapboxgl.GeoJSONSource
+              if (measSource) measSource.setData({ type: "FeatureCollection", features: [] })
+            }
             if (map && selectedTextIdsRef.current.size > 0) {
               selectedTextIdsRef.current.clear()
               syncTextLabels(map)
+            }
+            if (map && selectedLineIdsRef.current.size > 0) {
+              selectedLineIdsRef.current.clear()
+              syncLineFeatures(map)
             }
             popupRef.current?.remove()
             onToolChange("select")
@@ -1488,6 +2284,16 @@ export function MapView({
               changed = true
             }
 
+            // Delete selected line features
+            if (selectedLineIdsRef.current.size > 0) {
+              lineFeaturesRef.current = lineFeaturesRef.current.filter(
+                (f) => !selectedLineIdsRef.current.has(f.properties!.id)
+              )
+              selectedLineIdsRef.current.clear()
+              syncLineFeatures(map)
+              changed = true
+            }
+
             if (changed) pushHistory()
             return
           }
@@ -1514,8 +2320,13 @@ export function MapView({
     handleRedo,
     updateAreaLabels,
     syncTextLabels,
+    syncLineFeatures,
+    syncMeasurement,
     pushHistory,
     removeTextInput,
+    onPanelModeChange,
+    onEditingSelectionChange,
+    onLineDefaultsChange,
   ])
 
   // Close context menu on outside click

@@ -3,6 +3,7 @@ import type { Feature } from "geojson"
 export interface Snapshot {
   drawFeatures: Feature[]
   textFeatures: Feature[]
+  lineFeatures?: Feature[]
 }
 
 const MAX_HISTORY = 50

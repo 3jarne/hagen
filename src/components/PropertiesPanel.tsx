@@ -14,16 +14,19 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
-import type { ShapeProperties, TextProperties } from "@/lib/zone-defaults"
+import { Switch } from "@/components/ui/switch"
+import type { ShapeProperties, TextProperties, LineProperties } from "@/lib/zone-defaults"
 import { ZONE_CATEGORIES } from "@/lib/zone-defaults"
 
 interface PropertiesPanelProps {
   visible: boolean
-  mode: "shape" | "text" | "none"
+  mode: "shape" | "text" | "line" | "none"
   shapeProps: ShapeProperties
   textProps: TextProperties
+  lineProps: LineProperties
   onShapeChange: (props: Partial<ShapeProperties>) => void
   onTextChange: (props: Partial<TextProperties>) => void
+  onLineChange: (props: Partial<LineProperties>) => void
 }
 
 function ColorSwatch({
@@ -56,8 +59,10 @@ export function PropertiesPanel({
   mode,
   shapeProps,
   textProps,
+  lineProps,
   onShapeChange,
   onTextChange,
+  onLineChange,
 }: PropertiesPanelProps) {
   return (
     <div
@@ -157,6 +162,70 @@ export function PropertiesPanel({
                   max={8}
                   step={0.5}
                   onValueChange={([v]) => onShapeChange({ strokeWidth: v })}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {mode === "line" && (
+          <>
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold">Stroke</h3>
+
+              <div className="flex items-center gap-3">
+                <Label className="w-12 text-xs text-muted-foreground">
+                  Color
+                </Label>
+                <ColorSwatch
+                  color={lineProps.strokeColor}
+                  onChange={(c) => onLineChange({ strokeColor: c })}
+                  label="Stroke color"
+                />
+                <span className="text-xs text-muted-foreground font-mono">
+                  {lineProps.strokeColor}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Width</Label>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {lineProps.strokeWidth}px
+                  </span>
+                </div>
+                <Slider
+                  value={[lineProps.strokeWidth]}
+                  min={0.5}
+                  max={8}
+                  step={0.5}
+                  onValueChange={([v]) => onLineChange({ strokeWidth: v })}
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold">Arrows</h3>
+
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">
+                  Start arrow
+                </Label>
+                <Switch
+                  checked={lineProps.startArrow}
+                  onCheckedChange={(v: boolean) => onLineChange({ startArrow: v })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">
+                  End arrow
+                </Label>
+                <Switch
+                  checked={lineProps.endArrow}
+                  onCheckedChange={(v: boolean) => onLineChange({ endArrow: v })}
                 />
               </div>
             </div>

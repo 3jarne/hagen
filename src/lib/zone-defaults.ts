@@ -73,3 +73,17 @@ export const DEFAULT_TEXT: TextProperties = {
   fontSize: 16,
   textColor: "#ffffff",
 }
+
+export interface LineProperties {
+  strokeColor: string
+  strokeWidth: number
+  startArrow: boolean
+  endArrow: boolean
+}
+
+export const DEFAULT_LINE: LineProperties = {
+  strokeColor: "#ffffff",
+  strokeWidth: 2,
+  startArrow: false,
+  endArrow: false,
+}

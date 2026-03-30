@@ -17,6 +17,8 @@ const shortcuts = [
     { keys: ["R"], description: "Rectangle tool" },
     { keys: ["C"], description: "Circle tool" },
     { keys: ["T"], description: "Text tool" },
+    { keys: ["L"], description: "Line / Pen tool" },
+    { keys: ["M"], description: "Measure tool" },
   ]},
   { category: "Edit", items: [
     { keys: ["⌘", "Z"], description: "Undo" },
@@ -24,10 +26,10 @@ const shortcuts = [
     { keys: ["Del"], description: "Delete selected" },
     { keys: ["Esc"], description: "Cancel / deselect" },
   ]},
-  { category: "Text", items: [
-    { keys: ["Enter"], description: "Confirm text" },
-    { keys: ["Esc"], description: "Cancel text edit" },
-    { keys: ["Double-click"], description: "Edit existing text" },
+  { category: "Text & Lines", items: [
+    { keys: ["Enter"], description: "Confirm text / finish line" },
+    { keys: ["Esc"], description: "Cancel text / line / measure" },
+    { keys: ["Double-click"], description: "Edit text / finish line" },
   ]},
 ]
 

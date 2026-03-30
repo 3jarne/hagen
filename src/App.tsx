@@ -8,13 +8,15 @@ import { CONFIG } from "@/config"
 import {
   DEFAULT_SHAPE,
   DEFAULT_TEXT,
+  DEFAULT_LINE,
   ZONE_PRESETS,
   type ShapeProperties,
   type TextProperties,
+  type LineProperties,
   type ZoneCategory,
 } from "@/lib/zone-defaults"
 
-export type PanelMode = "shape" | "text" | "none"
+export type PanelMode = "shape" | "text" | "line" | "none"
 export type MapStyle = "satellite" | "street" | "terrain"
 
 function App() {
@@ -42,6 +44,9 @@ function App() {
   })
   const [textDefaults, setTextDefaults] = useState<TextProperties>({
     ...DEFAULT_TEXT,
+  })
+  const [lineDefaults, setLineDefaults] = useState<LineProperties>({
+    ...DEFAULT_LINE,
   })
   const [panelMode, setPanelMode] = useState<PanelMode>("none")
   // Track whether we're showing defaults or editing a selection
@@ -102,14 +107,19 @@ function App() {
     setTextDefaults((prev) => ({ ...prev, ...partial }))
   }, [])
 
+  const handleLineChange = useCallback((partial: Partial<LineProperties>) => {
+    setLineDefaults((prev) => ({ ...prev, ...partial }))
+  }, [])
+
   // Determine panel visibility
   const isDrawTool =
     activeTool === "polygon" ||
     activeTool === "rectangle" ||
     activeTool === "circle"
   const isTextTool = activeTool === "text"
+  const isLineTool = activeTool === "line"
   const showPanel =
-    isDrawTool || isTextTool || panelMode !== "none"
+    isDrawTool || isTextTool || isLineTool || panelMode !== "none"
 
   return (
     <div className="h-screen w-screen overflow-hidden relative">
@@ -141,8 +151,10 @@ function App() {
         redoRef={redoRef}
         shapeDefaults={shapeDefaults}
         textDefaults={textDefaults}
+        lineDefaults={lineDefaults}
         onShapeDefaultsChange={setShapeDefaults}
         onTextDefaultsChange={setTextDefaults}
+        onLineDefaultsChange={setLineDefaults}
         onPanelModeChange={setPanelMode}
         onEditingSelectionChange={setIsEditingSelection}
         exportJSONRef={exportJSONRef}
@@ -157,11 +169,13 @@ function App() {
       <FloatingToolbar activeTool={activeTool} onToolChange={handleToolChange} />
       <PropertiesPanel
         visible={showPanel}
-        mode={isDrawTool ? "shape" : isTextTool ? "text" : panelMode}
+        mode={isLineTool ? "line" : isDrawTool ? "shape" : isTextTool ? "text" : panelMode}
         shapeProps={shapeDefaults}
         textProps={textDefaults}
+        lineProps={lineDefaults}
         onShapeChange={handleShapeChange}
         onTextChange={handleTextChange}
+        onLineChange={handleLineChange}
       />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
