@@ -33,21 +33,26 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 3. **Edge handles** (4 dots at edge midpoints): drag to stretch along one axis only
 4. **Rotation handle**: a handle extending above the top edge — drag left/right to rotate freely around the object's center (no angle snapping)
 
+**Selection modes (Figma pattern):**
+- **Single-click** on an object → transform handles appear (scale, rotate). User manipulates the object as a whole.
+- **Double-click** on an object → enters vertex/edit mode. User can drag individual vertices (polygons), control points (paths), or edit text content.
+- **Escape** or click outside → exits back to transform mode or deselects.
+
 **How it works for each object type:**
-- **Polygon/rectangle**: Vertices transform with the bounding box. A rectangle stretched horizontally becomes a wider rectangle.
-- **Circle → ellipse**: Circles are stored as 64-point polygons. Non-proportional scaling stretches them into ellipses. The 4 cardinal edit handles (N/S/E/W) replace the current 64-vertex display.
-- **Text → text box**: When a text element is scaled, it becomes a text box. The text reflows (wraps) to fill the box width, and font size adjusts to fit the box height. Like Illustrator/Figma area text — the box defines where text lives, not just a single point.
-- **Lines/paths** (see Feature B): Same transform handles apply — scaling stretches the path non-proportionally.
+- **Polygon/rectangle**: Vertices transform with the bounding box. A rectangle stretched horizontally becomes a wider rectangle. Double-click → edit individual vertices.
+- **Ellipse**: Stored as a proper ellipse type (center, radiusX, radiusY, rotation) — not a 64-point polygon. Corner handles scale non-proportionally (circle becomes ellipse). Double-click → edit radius handles (N/S/E/W cardinal points).
+- **Text → text box (Figma-style)**: Font size stays fixed. When the text box is scaled wider, text reflows (wraps) to the new width. If the box is too small, text overflows/clips. The box defines where text lives. Double-click → edit text content inline.
+- **Lines/paths** (see Feature B): Same transform handles apply. Double-click → edit individual anchor points.
 
 ### Feature B: Pen/line tool
 
 **New toolbar button** (shortcut TBD) for drawing open paths (not closed shapes).
 
-**Two drawing modes within the same tool:**
-1. **Click-click (straight segments)**: Click to place points, each click adds a straight segment. Double-click or Enter to finish. Result: a polyline.
-2. **Freehand (smooth curves)**: Hold mouse button and drag to draw a smooth freehand path. Release to finish. Result: a smoothed curve.
+**Auto-detect drawing mode (single tool, two behaviors):**
+1. **Click and release (short click)**: Places an anchor point. Each subsequent click adds a straight segment. Double-click or Enter to finish. Result: a polyline.
+2. **Click and hold + drag**: Immediately starts freehand drawing. The path follows the cursor. Release to finish. Result: a smoothed curve.
 
-**How the user switches between modes:** TBD — could be a modifier key (e.g., hold Shift for freehand), a sub-mode toggle in the toolbar, or automatic (short click = point, long press + drag = freehand).
+The tool auto-detects based on whether the user clicks or click-drags. No mode toggle needed.
 
 **Arrow heads:**
 - When a line/path is selected, the properties panel shows two toggles: "Start arrow" and "End arrow" (each on/off)
@@ -76,6 +81,7 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 **Open questions:**
 - Should measurements persist (saved to project) or be ephemeral (disappear on tool switch)?
 - Should there be a "measure area" vs "measure distance" sub-mode, or one unified tool?
+- Pen tool keyboard shortcut — what letter? (L for line? D for draw? Something else?)
 
 ---
 
