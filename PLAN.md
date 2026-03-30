@@ -58,9 +58,9 @@ The tool auto-detects based on whether the user clicks or click-drags. No mode t
 4. Click to keep adding points, double-click or Enter to finish
 5. Measurement stays visible until user starts a new measurement or switches tool
 
-**Open questions:**
-- Should measurements persist (saved to project) or be ephemeral (disappear on tool switch)?
-- Should there be a "measure area" vs "measure distance" sub-mode, or one unified tool?
+**Decisions:**
+- One unified tool — no sub-modes. 2 points = distance, 3+ points = distance + area automatically.
+- Persistence: TBD (persist in project or ephemeral?)
 
 ---
 
