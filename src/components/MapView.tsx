@@ -127,6 +127,14 @@ export function MapView({
   const lineMouseDownRef = useRef<{ time: number; point: [number, number] } | null>(null)
   const isDraggingLineRef = useRef(false)
 
+  // Line edit mode
+  const lineEditIdRef = useRef<string | null>(null)
+  const draggingVertexRef = useRef<{
+    lineId: string
+    vertexIndex: number
+    startLngLat: { lng: number; lat: number }
+  } | null>(null)
+
   // Measurement state (ephemeral)
   const measurePointsRef = useRef<Position[]>([])
   const measureFinishedRef = useRef(false)
@@ -364,22 +372,67 @@ export function MapView({
     if (bboxSource) {
       if (selectedLineIdsRef.current.size === 0) {
         bboxSource.setData({ type: "FeatureCollection", features: [] })
-      } else {
-        const dots: Feature[] = []
-        for (const id of selectedLineIdsRef.current) {
-          const lineF = lineFeaturesRef.current.find(lf => lf.properties!.id === id)
-          if (!lineF) continue
-          const coords = (lineF.geometry as GeoJSON.LineString).coordinates
-          for (const c of coords) {
-            dots.push({
+        return
+      }
+
+      const bboxFeatures: Feature[] = []
+      const editId = lineEditIdRef.current
+      const padding = 10
+
+      for (const id of selectedLineIdsRef.current) {
+        const lineF = lineFeaturesRef.current.find(lf => lf.properties!.id === id)
+        if (!lineF) continue
+        const coords = (lineF.geometry as GeoJSON.LineString).coordinates
+
+        if (editId === id) {
+          // Edit mode: show individual vertex dots
+          for (let i = 0; i < coords.length; i++) {
+            bboxFeatures.push({
               type: "Feature",
-              geometry: { type: "Point", coordinates: c },
+              geometry: { type: "Point", coordinates: coords[i] },
+              properties: { vertexIndex: i, lineId: id },
+            })
+          }
+        } else {
+          // Normal selection: show bounding box rectangle
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+          for (const c of coords) {
+            const pt = map.project([c[0], c[1]])
+            if (pt.x < minX) minX = pt.x
+            if (pt.y < minY) minY = pt.y
+            if (pt.x > maxX) maxX = pt.x
+            if (pt.y > maxY) maxY = pt.y
+          }
+          minX -= padding; minY -= padding
+          maxX += padding; maxY += padding
+
+          const tl = map.unproject([minX, minY])
+          const tr = map.unproject([maxX, minY])
+          const br = map.unproject([maxX, maxY])
+          const bl = map.unproject([minX, maxY])
+
+          bboxFeatures.push({
+            type: "Feature",
+            geometry: {
+              type: "Polygon",
+              coordinates: [[
+                [tl.lng, tl.lat], [tr.lng, tr.lat],
+                [br.lng, br.lat], [bl.lng, bl.lat],
+                [tl.lng, tl.lat],
+              ]],
+            },
+            properties: {},
+          })
+          for (const corner of [tl, tr, br, bl]) {
+            bboxFeatures.push({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [corner.lng, corner.lat] },
               properties: {},
             })
           }
         }
-        bboxSource.setData({ type: "FeatureCollection", features: dots })
       }
+      bboxSource.setData({ type: "FeatureCollection", features: bboxFeatures })
     }
   }, [])
 
@@ -810,20 +863,45 @@ export function MapView({
         },
       })
 
-      // Line selection bbox (vertex dots)
+      // Line selection bbox
       map.addSource("line-selection-bbox", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       })
       map.addLayer({
-        id: "line-selection-bbox-dots",
+        id: "line-selection-bbox-outline",
+        type: "line",
+        source: "line-selection-bbox",
+        filter: ["==", "$type", "Polygon"],
+        paint: {
+          "line-color": "#93c5fd",
+          "line-width": 1,
+          "line-dasharray": [4, 3],
+        },
+      })
+      map.addLayer({
+        id: "line-selection-bbox-corners",
         type: "circle",
         source: "line-selection-bbox",
+        filter: ["==", "$type", "Point"],
         paint: {
           "circle-radius": 4,
           "circle-color": "#ffffff",
           "circle-stroke-color": "#93c5fd",
           "circle-stroke-width": 1.5,
+        },
+      })
+
+      // Invisible wider hit area for line selection
+      map.addLayer({
+        id: "line-features-hit",
+        type: "line",
+        source: "line-features",
+        filter: ["==", "$type", "LineString"],
+        paint: {
+          "line-color": "transparent",
+          "line-width": 14,
+          "line-opacity": 0,
         },
       })
 
@@ -902,10 +980,13 @@ export function MapView({
         },
       })
 
-      // Recalculate text bbox on map move/zoom
+      // Recalculate text and line bbox on map move/zoom
       map.on("move", () => {
         if (selectedTextIdsRef.current.size > 0) {
           updateTextSelectionBbox(map)
+        }
+        if (selectedLineIdsRef.current.size > 0) {
+          syncLineFeatures(map)
         }
       })
 
@@ -1083,6 +1164,7 @@ export function MapView({
         selectedTextIdsRef.current.clear()
         selectedTextIdsRef.current.add(id)
         syncTextLabels(map)
+        activeToolRef.current = "select" // Sync ref immediately to prevent text tool click re-firing
         onToolChange("select")
         onPanelModeChange("text")
         onEditingSelectionChange(true)
@@ -1144,7 +1226,7 @@ export function MapView({
 
       // Check line hits
       const lineHits = map.queryRenderedFeatures(e.point, {
-        layers: map.getLayer("line-features-stroke") ? ["line-features-stroke"] : [],
+        layers: map.getLayer("line-features-hit") ? ["line-features-hit"] : map.getLayer("line-features-stroke") ? ["line-features-stroke"] : [],
       })
       if (lineHits.length > 0) {
         const hitId = lineHits[0].properties!.id as string
@@ -1170,7 +1252,13 @@ export function MapView({
         }
       }
 
-      // Click on empty space — deselect text and lines
+      // Click on empty space — exit edit mode or deselect
+      if (lineEditIdRef.current) {
+        // Exit line edit mode first (keep selection)
+        lineEditIdRef.current = null
+        syncLineFeatures(map)
+        return
+      }
       if (selectedTextIdsRef.current.size > 0 || selectedLineIdsRef.current.size > 0) {
         if (justConfirmedTextRef.current) return
         selectedTextIdsRef.current.clear()
@@ -1182,6 +1270,20 @@ export function MapView({
           onEditingSelectionChange(false)
         }
       }
+    })
+
+    // Double-click to enter line edit mode
+    map.on("dblclick", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "select") return
+      const lineHits = map.queryRenderedFeatures(e.point, {
+        layers: map.getLayer("line-features-hit") ? ["line-features-hit"] : map.getLayer("line-features-stroke") ? ["line-features-stroke"] : [],
+      })
+      if (lineHits.length === 0) return
+      const hitId = lineHits[0].properties!.id as string
+      if (!hitId || !selectedLineIdsRef.current.has(hitId)) return
+      e.preventDefault()
+      lineEditIdRef.current = hitId
+      syncLineFeatures(map)
     })
 
     // Double-click to edit text label
@@ -1302,7 +1404,7 @@ export function MapView({
       if (isDraggingLineRef.current) {
         // Finish freehand drawing
         isDraggingLineRef.current = false
-        const simplified = simplify(freehandPointsRef.current, 0.00005)
+        const simplified = simplify(freehandPointsRef.current, 0.000003)
         freehandPointsRef.current = []
         if (simplified.length < 2) return
         const ld = lineDefaultsRef.current
@@ -1530,13 +1632,36 @@ export function MapView({
       saveToStorageRef.current?.()
     })
 
-    // Line feature dragging
+    // Line feature dragging + vertex editing
     map.on("mousedown", (e: mapboxgl.MapMouseEvent) => {
       if (activeToolRef.current !== "select") return
       if (textInputRef.current) return
       if (draggingTextRef.current) return
+
+      // In edit mode: check for vertex hits first
+      if (lineEditIdRef.current) {
+        const vertexHits = map.queryRenderedFeatures(e.point, {
+          layers: map.getLayer("line-selection-bbox-corners") ? ["line-selection-bbox-corners"] : [],
+        })
+        if (vertexHits.length > 0) {
+          const props = vertexHits[0].properties
+          if (props && props.vertexIndex !== undefined && props.lineId) {
+            e.preventDefault()
+            draggingVertexRef.current = {
+              lineId: props.lineId as string,
+              vertexIndex: props.vertexIndex as number,
+              startLngLat: e.lngLat,
+            }
+            map.getCanvas().style.cursor = "move"
+            map.dragPan.disable()
+            return
+          }
+        }
+      }
+
+      // Normal line dragging
       const lineHits = map.queryRenderedFeatures(e.point, {
-        layers: map.getLayer("line-features-stroke") ? ["line-features-stroke"] : [],
+        layers: map.getLayer("line-features-hit") ? ["line-features-hit"] : map.getLayer("line-features-stroke") ? ["line-features-stroke"] : [],
       })
       if (lineHits.length === 0) return
       const hitId = lineHits[0].properties!.id as string
@@ -1548,6 +1673,22 @@ export function MapView({
     })
 
     map.on("mousemove", (e: mapboxgl.MapMouseEvent) => {
+      // Vertex dragging
+      if (draggingVertexRef.current) {
+        const vd = draggingVertexRef.current
+        lineFeaturesRef.current = lineFeaturesRef.current.map((f) => {
+          if (f.properties!.id !== vd.lineId) return f
+          const coords = [...(f.geometry as GeoJSON.LineString).coordinates]
+          coords[vd.vertexIndex] = [e.lngLat.lng, e.lngLat.lat]
+          return {
+            ...f,
+            geometry: { type: "LineString" as const, coordinates: coords },
+          }
+        })
+        syncLineFeatures(map)
+        return
+      }
+      // Line dragging
       if (!draggingLineRef.current) return
       const dLng = e.lngLat.lng - draggingLineRef.current.startLngLat.lng
       const dLat = e.lngLat.lat - draggingLineRef.current.startLngLat.lat
@@ -1567,6 +1708,18 @@ export function MapView({
     })
 
     map.on("mouseup", () => {
+      if (draggingVertexRef.current) {
+        draggingVertexRef.current = null
+        map.getCanvas().style.cursor = ""
+        map.dragPan.enable()
+        history.push({
+          drawFeatures: draw.getAll().features,
+          textFeatures: [...textFeaturesRef.current],
+          lineFeatures: [...lineFeaturesRef.current],
+        })
+        saveToStorageRef.current?.()
+        return
+      }
       if (!draggingLineRef.current) return
       draggingLineRef.current = null
       map.getCanvas().style.cursor = ""
@@ -1642,6 +1795,7 @@ export function MapView({
     popupRef.current?.remove()
     removeTextInput()
     setContextMenu(null)
+    lineEditIdRef.current = null
 
     // Cancel any in-progress line drawing when switching away from line tool
     if (activeTool !== "line") {
@@ -2020,15 +2174,29 @@ export function MapView({
           data: { type: "FeatureCollection", features: [] },
         })
         map.addLayer({
-          id: "line-selection-bbox-dots",
+          id: "line-selection-bbox-outline",
+          type: "line",
+          source: "line-selection-bbox",
+          filter: ["==", "$type", "Polygon"],
+          paint: { "line-color": "#93c5fd", "line-width": 1, "line-dasharray": [4, 3] },
+        })
+        map.addLayer({
+          id: "line-selection-bbox-corners",
           type: "circle",
           source: "line-selection-bbox",
-          paint: {
-            "circle-radius": 4,
-            "circle-color": "#ffffff",
-            "circle-stroke-color": "#93c5fd",
-            "circle-stroke-width": 1.5,
-          },
+          filter: ["==", "$type", "Point"],
+          paint: { "circle-radius": 4, "circle-color": "#ffffff", "circle-stroke-color": "#93c5fd", "circle-stroke-width": 1.5 },
+        })
+      }
+
+      // Re-add line hit area
+      if (!map.getLayer("line-features-hit") && map.getSource("line-features")) {
+        map.addLayer({
+          id: "line-features-hit",
+          type: "line",
+          source: "line-features",
+          filter: ["==", "$type", "LineString"],
+          paint: { "line-color": "transparent", "line-width": 14, "line-opacity": 0 },
         })
       }
 
@@ -2315,7 +2483,10 @@ export function MapView({
               selectedTextIdsRef.current.clear()
               syncTextLabels(map)
             }
-            if (map && selectedLineIdsRef.current.size > 0) {
+            if (map && lineEditIdRef.current) {
+              lineEditIdRef.current = null
+              syncLineFeatures(map)
+            } else if (map && selectedLineIdsRef.current.size > 0) {
               selectedLineIdsRef.current.clear()
               syncLineFeatures(map)
             }
