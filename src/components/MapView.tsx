@@ -114,6 +114,10 @@ export function MapView({
     id: string
     startLngLat: { lng: number; lat: number }
   } | null>(null)
+  const draggingLineRef = useRef<{
+    id: string
+    startLngLat: { lng: number; lat: number }
+  } | null>(null)
 
   // Line features state
   const lineFeaturesRef = useRef<Feature[]>([])
@@ -1225,6 +1229,7 @@ export function MapView({
     map.on("mousedown", (e: mapboxgl.MapMouseEvent) => {
       if (activeToolRef.current !== "line") return
       if (textInputRef.current) return
+      map.dragPan.disable()
       lineMouseDownRef.current = {
         time: Date.now(),
         point: [e.point.x, e.point.y],
@@ -1525,6 +1530,57 @@ export function MapView({
       saveToStorageRef.current?.()
     })
 
+    // Line feature dragging
+    map.on("mousedown", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "select") return
+      if (textInputRef.current) return
+      if (draggingTextRef.current) return
+      const lineHits = map.queryRenderedFeatures(e.point, {
+        layers: map.getLayer("line-features-stroke") ? ["line-features-stroke"] : [],
+      })
+      if (lineHits.length === 0) return
+      const hitId = lineHits[0].properties!.id as string
+      if (!hitId || !selectedLineIdsRef.current.has(hitId)) return
+      e.preventDefault()
+      draggingLineRef.current = { id: hitId, startLngLat: e.lngLat }
+      map.getCanvas().style.cursor = "move"
+      map.dragPan.disable()
+    })
+
+    map.on("mousemove", (e: mapboxgl.MapMouseEvent) => {
+      if (!draggingLineRef.current) return
+      const dLng = e.lngLat.lng - draggingLineRef.current.startLngLat.lng
+      const dLat = e.lngLat.lat - draggingLineRef.current.startLngLat.lat
+      lineFeaturesRef.current = lineFeaturesRef.current.map((f) => {
+        if (!selectedLineIdsRef.current.has(f.properties!.id)) return f
+        const coords = (f.geometry as GeoJSON.LineString).coordinates
+        return {
+          ...f,
+          geometry: {
+            type: "LineString" as const,
+            coordinates: coords.map((c) => [c[0] + dLng, c[1] + dLat]),
+          },
+        }
+      })
+      draggingLineRef.current = { ...draggingLineRef.current, startLngLat: e.lngLat }
+      syncLineFeatures(map)
+    })
+
+    map.on("mouseup", () => {
+      if (!draggingLineRef.current) return
+      draggingLineRef.current = null
+      map.getCanvas().style.cursor = ""
+      if (activeToolRef.current === "select") {
+        map.dragPan.enable()
+      }
+      history.push({
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
+      })
+      saveToStorageRef.current?.()
+    })
+
     // Close context menu on map interaction
     map.on("movestart", () => setContextMenu(null))
 
@@ -1609,33 +1665,42 @@ export function MapView({
     suppressModeSync.current = true
     switch (activeTool) {
       case "select":
-        draw.changeMode("simple_select")
+        if (draw.getMode() !== "simple_select") {
+          draw.changeMode("simple_select")
+        }
+        map.getCanvas().style.cursor = ""
         map.dragPan.enable()
         break
       case "polygon":
         draw.changeMode("draw_polygon")
+        map.getCanvas().style.cursor = "crosshair"
         map.dragPan.disable()
         break
       case "rectangle":
         draw.changeMode("draw_rectangle")
+        map.getCanvas().style.cursor = "crosshair"
         map.dragPan.disable()
         break
       case "circle":
         draw.changeMode("draw_circle")
+        map.getCanvas().style.cursor = "crosshair"
         map.dragPan.disable()
         break
       case "text":
         draw.changeMode("simple_select")
+        map.getCanvas().style.cursor = "text"
         map.dragPan.enable()
         break
       case "line":
         draw.changeMode("simple_select")
+        map.getCanvas().style.cursor = "crosshair"
         map.dragPan.enable()
         selectedLineIdsRef.current.clear()
         syncLineFeatures(map)
         break
       case "measure":
         draw.changeMode("simple_select")
+        map.getCanvas().style.cursor = "crosshair"
         map.dragPan.enable()
         break
     }

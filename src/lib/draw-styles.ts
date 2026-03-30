@@ -8,7 +8,7 @@ export const drawStyles: object[] = [
     type: "fill",
     filter: ["all", ["==", "$type", "Polygon"], ["!=", "mode", "static"]],
     paint: {
-      "fill-color": ["coalesce", ["get", "user_fillColor"], "#4ade80"],
+      "fill-color": ["coalesce", ["get", "user_fillColor"], "#93c5fd"],
       "fill-opacity": ["coalesce", ["get", "user_fillOpacity"], 0.4],
     },
   },
@@ -18,7 +18,7 @@ export const drawStyles: object[] = [
     type: "line",
     filter: ["all", ["==", "$type", "Polygon"], ["!=", "mode", "static"]],
     paint: {
-      "line-color": ["coalesce", ["get", "user_strokeColor"], "#4ade80"],
+      "line-color": ["coalesce", ["get", "user_strokeColor"], "#93c5fd"],
       "line-width": ["coalesce", ["get", "user_strokeWidth"], 2],
     },
   },
@@ -28,7 +28,7 @@ export const drawStyles: object[] = [
     type: "fill",
     filter: ["all", ["==", "$type", "Polygon"], ["==", "mode", "static"]],
     paint: {
-      "fill-color": ["coalesce", ["get", "user_fillColor"], "#4ade80"],
+      "fill-color": ["coalesce", ["get", "user_fillColor"], "#93c5fd"],
       "fill-opacity": ["coalesce", ["get", "user_fillOpacity"], 0.4],
     },
   },
@@ -38,7 +38,7 @@ export const drawStyles: object[] = [
     type: "line",
     filter: ["all", ["==", "$type", "Polygon"], ["==", "mode", "static"]],
     paint: {
-      "line-color": ["coalesce", ["get", "user_strokeColor"], "#4ade80"],
+      "line-color": ["coalesce", ["get", "user_strokeColor"], "#93c5fd"],
       "line-width": ["coalesce", ["get", "user_strokeWidth"], 2],
     },
   },
@@ -48,7 +48,7 @@ export const drawStyles: object[] = [
     type: "line",
     filter: ["all", ["==", "$type", "LineString"], ["!=", "mode", "static"]],
     paint: {
-      "line-color": "#4ade80",
+      "line-color": "#93c5fd",
       "line-dasharray": [0.2, 2],
       "line-width": 2,
     },
@@ -65,7 +65,7 @@ export const drawStyles: object[] = [
     ],
     paint: {
       "circle-radius": 8,
-      "circle-color": "#4ade80",
+      "circle-color": "#93c5fd",
       "circle-stroke-color": "#fff",
       "circle-stroke-width": 2,
     },
@@ -83,7 +83,7 @@ export const drawStyles: object[] = [
     paint: {
       "circle-radius": 5,
       "circle-color": "#fff",
-      "circle-stroke-color": "#4ade80",
+      "circle-stroke-color": "#93c5fd",
       "circle-stroke-width": 2,
     },
   },
@@ -94,7 +94,7 @@ export const drawStyles: object[] = [
     filter: ["all", ["==", "$type", "Point"], ["==", "meta", "midpoint"]],
     paint: {
       "circle-radius": 3,
-      "circle-color": "#4ade80",
+      "circle-color": "#93c5fd",
     },
   },
 ]
