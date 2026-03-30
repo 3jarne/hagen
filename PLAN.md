@@ -60,7 +60,7 @@ The tool auto-detects based on whether the user clicks or click-drags. No mode t
 
 **Decisions:**
 - One unified tool — no sub-modes. 2 points = distance, 3+ points = distance + area automatically.
-- Persistence: TBD (persist in project or ephemeral?)
+- Ephemeral — measurements disappear when switching tools or starting a new measurement.
 
 ---
 
