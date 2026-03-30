@@ -24,21 +24,58 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 
 ## Post-v1 Features
 
-### Transform handles (shapes + text)
-- **Rotation**: Free rotation handle (drag to rotate around centroid, no snapping)
-- **Scaling**: Non-proportional — corner handles scale freely, edge handles stretch one axis
-- **Applies to shapes AND text**: Text becomes a text box (like Illustrator/Figma) — text reflows to fill the bounding box when resized
-- **Circle → ellipse**: Circles use the same non-proportional scaling, so dragging a corner/edge stretches into an ellipse
+### Feature A: Transform handles
 
-### Pen/line tool
-- **Two modes**: Click-click for straight line segments (open path), hold-and-drag for freehand drawing
-- **Non-proportional scaling** applies here too — lines/paths can be stretched
-- **Arrow heads**: Optional start/end arrow head toggle in properties panel (for directional annotations like flow, paths)
-- **Properties**: Stroke color, width (same as shapes). Dashes/patterns TBD later
+**What the user sees when selecting any object (shape, text, or line/path):**
 
-### Measurement tool
-- **Dedicated tool in toolbar**: Measure distances and areas directly on the map
-- Specifics TBD
+1. A bounding box appears around the object (dashed outline + corner/edge handles)
+2. **Corner handles** (4 dots at corners): drag to scale freely in both axes (non-proportional — the object stretches/squishes)
+3. **Edge handles** (4 dots at edge midpoints): drag to stretch along one axis only
+4. **Rotation handle**: a handle extending above the top edge — drag left/right to rotate freely around the object's center (no angle snapping)
+
+**How it works for each object type:**
+- **Polygon/rectangle**: Vertices transform with the bounding box. A rectangle stretched horizontally becomes a wider rectangle.
+- **Circle → ellipse**: Circles are stored as 64-point polygons. Non-proportional scaling stretches them into ellipses. The 4 cardinal edit handles (N/S/E/W) replace the current 64-vertex display.
+- **Text → text box**: When a text element is scaled, it becomes a text box. The text reflows (wraps) to fill the box width, and font size adjusts to fit the box height. Like Illustrator/Figma area text — the box defines where text lives, not just a single point.
+- **Lines/paths** (see Feature B): Same transform handles apply — scaling stretches the path non-proportionally.
+
+### Feature B: Pen/line tool
+
+**New toolbar button** (shortcut TBD) for drawing open paths (not closed shapes).
+
+**Two drawing modes within the same tool:**
+1. **Click-click (straight segments)**: Click to place points, each click adds a straight segment. Double-click or Enter to finish. Result: a polyline.
+2. **Freehand (smooth curves)**: Hold mouse button and drag to draw a smooth freehand path. Release to finish. Result: a smoothed curve.
+
+**How the user switches between modes:** TBD — could be a modifier key (e.g., hold Shift for freehand), a sub-mode toggle in the toolbar, or automatic (short click = point, long press + drag = freehand).
+
+**Arrow heads:**
+- When a line/path is selected, the properties panel shows two toggles: "Start arrow" and "End arrow" (each on/off)
+- When enabled, a triangular arrowhead renders at that end of the path
+- Use case: directional annotations like "water flows this way", "walk path from A → B"
+
+**Properties (in properties panel when line is selected):**
+- Stroke color (color picker, same as shapes)
+- Stroke width (slider, same as shapes)
+- Start arrow: on/off toggle
+- End arrow: on/off toggle
+
+### Feature C: Measurement tool
+
+**New toolbar button** (shortcut: M) for measuring distances and areas on the map.
+
+**How it works:**
+1. User activates measurement tool
+2. Click points on the map to measure:
+   - **2 points**: Shows distance between them (meters/km)
+   - **3+ points**: Shows perimeter and enclosed area (m²)
+3. Measurements display as labels near the measured geometry
+4. Click to keep adding points, double-click or Enter to finish
+5. Measurement stays visible until user starts a new measurement or switches tool
+
+**Open questions:**
+- Should measurements persist (saved to project) or be ephemeral (disappear on tool switch)?
+- Should there be a "measure area" vs "measure distance" sub-mode, or one unified tool?
 
 ---
 
