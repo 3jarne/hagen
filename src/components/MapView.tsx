@@ -82,6 +82,7 @@ export function MapView({
   const activeToolRef = useRef<Tool>(activeTool)
   const popupRef = useRef<mapboxgl.Popup | null>(null)
   const suppressModeSync = useRef(false)
+  const suppressSelectionSync = useRef(false)
   const shapeDefaultsRef = useRef(shapeDefaults)
   const textDefaultsRef = useRef(textDefaults)
 
@@ -537,16 +538,17 @@ export function MapView({
       saveToStorageRef.current?.()
     })
 
-    // Auto-switch tool to select after shape completion
+    // Auto-switch tool to select after shape completion (not text tool)
     map.on("draw.modechange", (e: { mode: string }) => {
       if (suppressModeSync.current) return
-      if (e.mode === "simple_select" && activeToolRef.current !== "select") {
+      if (e.mode === "simple_select" && activeToolRef.current !== "select" && activeToolRef.current !== "text") {
         onToolChange("select")
       }
     })
 
     // Track selection and update properties panel
     map.on("draw.selectionchange", (e: { features: GeoJSON.Feature[] }) => {
+      if (suppressSelectionSync.current) return
       if (map.getLayer("area-labels")) {
         map.setLayoutProperty(
           "area-labels",
@@ -946,8 +948,16 @@ export function MapView({
       draw.setFeatureProperty(id, "user_strokeWidth", shapeDefaults.strokeWidth)
       draw.setFeatureProperty(id, "user_zone", shapeDefaults.zone)
     }
-    // Force re-render with updated properties
+    // Force re-render with updated properties, suppress events to avoid circular reset
+    suppressSelectionSync.current = true
+    suppressModeSync.current = true
     draw.set(draw.getAll())
+    // Re-select the features that were selected
+    draw.changeMode("simple_select", { featureIds: selectedIds })
+    requestAnimationFrame(() => {
+      suppressSelectionSync.current = false
+      suppressModeSync.current = false
+    })
     updateAreaLabels(map, draw)
     saveToStorage()
   }, [shapeDefaults, updateAreaLabels, saveToStorage])
