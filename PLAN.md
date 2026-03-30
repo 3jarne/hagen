@@ -24,29 +24,9 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 
 ## Post-v1 Features
 
-### Feature A: Transform handles
+### Feature A: Pen/line tool
 
-**What the user sees when selecting any object (shape, text, or line/path):**
-
-1. A bounding box appears around the object (dashed outline + corner/edge handles)
-2. **Corner handles** (4 dots at corners): drag to scale freely in both axes (non-proportional — the object stretches/squishes)
-3. **Edge handles** (4 dots at edge midpoints): drag to stretch along one axis only
-4. **Rotation handle**: a handle extending above the top edge — drag left/right to rotate freely around the object's center (no angle snapping)
-
-**Selection modes (Figma pattern):**
-- **Single-click** on an object → transform handles appear (scale, rotate). User manipulates the object as a whole.
-- **Double-click** on an object → enters vertex/edit mode. User can drag individual vertices (polygons), control points (paths), or edit text content.
-- **Escape** or click outside → exits back to transform mode or deselects.
-
-**How it works for each object type:**
-- **Polygon/rectangle**: Vertices transform with the bounding box. A rectangle stretched horizontally becomes a wider rectangle. Double-click → edit individual vertices.
-- **Ellipse**: Stored as a proper ellipse type (center, radiusX, radiusY, rotation) — not a 64-point polygon. Corner handles scale non-proportionally (circle becomes ellipse). Double-click → edit radius handles (N/S/E/W cardinal points).
-- **Text → text box (Figma-style)**: Font size stays fixed. When the text box is scaled wider, text reflows (wraps) to the new width. If the box is too small, text overflows/clips. The box defines where text lives. Double-click → edit text content inline.
-- **Lines/paths** (see Feature B): Same transform handles apply. Double-click → edit individual anchor points.
-
-### Feature B: Pen/line tool
-
-**New toolbar button** (shortcut TBD) for drawing open paths (not closed shapes).
+**New toolbar button** (shortcut: L) for drawing open paths (not closed shapes).
 
 **Auto-detect drawing mode (single tool, two behaviors):**
 1. **Click and release (short click)**: Places an anchor point. Each subsequent click adds a straight segment. Double-click or Enter to finish. Result: a polyline.
@@ -65,7 +45,7 @@ The tool auto-detects based on whether the user clicks or click-drags. No mode t
 - Start arrow: on/off toggle
 - End arrow: on/off toggle
 
-### Feature C: Measurement tool
+### Feature B: Measurement tool
 
 **New toolbar button** (shortcut: M) for measuring distances and areas on the map.
 
@@ -81,7 +61,6 @@ The tool auto-detects based on whether the user clicks or click-drags. No mode t
 **Open questions:**
 - Should measurements persist (saved to project) or be ephemeral (disappear on tool switch)?
 - Should there be a "measure area" vs "measure distance" sub-mode, or one unified tool?
-- Pen tool keyboard shortcut — what letter? (L for line? D for draw? Something else?)
 
 ---
 
