@@ -98,6 +98,7 @@ export function MapView({
   const textInputRef = useRef<HTMLInputElement | null>(null)
   const textMeasurerRef = useRef<HTMLSpanElement | null>(null)
   const editingTextIdRef = useRef<string | null>(null)
+  const justConfirmedTextRef = useRef(false)
   const draggingTextRef = useRef<{
     id: string
     startLngLat: { lng: number; lat: number }
@@ -353,6 +354,11 @@ export function MapView({
     }
     const wasEditing = editingTextIdRef.current !== null
     editingTextIdRef.current = null
+    // Suppress the next empty-space deselection (blur + click race)
+    justConfirmedTextRef.current = true
+    requestAnimationFrame(() => {
+      justConfirmedTextRef.current = false
+    })
     // Re-show hidden text if editing was cancelled
     if (wasEditing) {
       const map = mapRef.current
@@ -447,6 +453,7 @@ export function MapView({
 
     const draw = new MapboxDraw({
       displayControlsDefault: false,
+      userProperties: true,
       styles: drawStyles,
       modes: {
         ...MapboxDraw.modes,
@@ -593,6 +600,15 @@ export function MapView({
           const saved: SavedProject = JSON.parse(raw)
           if (saved.drawFeatures?.length || saved.textFeatures?.length) {
             for (const feature of saved.drawFeatures) {
+              // Migrate old user_-prefixed property names
+              if (feature.properties) {
+                for (const key of Object.keys(feature.properties)) {
+                  if (key.startsWith("user_")) {
+                    feature.properties[key.slice(5)] = feature.properties[key]
+                    delete feature.properties[key]
+                  }
+                }
+              }
               draw.add(feature)
             }
             textFeaturesRef.current = saved.textFeatures || []
@@ -616,13 +632,18 @@ export function MapView({
       const defaults = shapeDefaultsRef.current
       for (const feature of e.features) {
         const id = feature.id as string
-        draw.setFeatureProperty(id, "user_fillColor", defaults.fillColor)
-        draw.setFeatureProperty(id, "user_fillOpacity", defaults.fillOpacity)
-        draw.setFeatureProperty(id, "user_strokeColor", defaults.strokeColor)
-        draw.setFeatureProperty(id, "user_strokeWidth", defaults.strokeWidth)
-        draw.setFeatureProperty(id, "user_zone", defaults.zone)
+        const current = draw.get(id)
+        if (!current) continue
+        current.properties = {
+          ...current.properties,
+          fillColor: defaults.fillColor,
+          fillOpacity: defaults.fillOpacity,
+          strokeColor: defaults.strokeColor,
+          strokeWidth: defaults.strokeWidth,
+          zone: defaults.zone,
+        }
+        draw.add(current)
       }
-      draw.set(draw.getAll())
       updateAreaLabels(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
@@ -673,11 +694,11 @@ export function MapView({
         onPanelModeChange("shape")
         onEditingSelectionChange(true)
         onShapeDefaultsChange({
-          fillColor: props.user_fillColor || "#4ade80",
-          fillOpacity: props.user_fillOpacity ?? 0.4,
-          strokeColor: props.user_strokeColor || "#4ade80",
-          strokeWidth: props.user_strokeWidth ?? 2,
-          zone: props.user_zone || "Lawn",
+          fillColor: props.fillColor || "#4ade80",
+          fillOpacity: props.fillOpacity ?? 0.4,
+          strokeColor: props.strokeColor || "#4ade80",
+          strokeWidth: props.strokeWidth ?? 2,
+          zone: props.zone || "Lawn",
         })
       } else if (
         activeToolRef.current === "select"
@@ -799,6 +820,7 @@ export function MapView({
 
       // Click on empty space — deselect text
       if (selectedTextIdsRef.current.size > 0) {
+        if (justConfirmedTextRef.current) return
         selectedTextIdsRef.current.clear()
         syncTextLabels(map)
         if (draw.getSelectedIds().length === 0) {
@@ -1068,11 +1090,11 @@ export function MapView({
       if (!feature) continue
       feature.properties = {
         ...feature.properties,
-        user_fillColor: shapeDefaults.fillColor,
-        user_fillOpacity: shapeDefaults.fillOpacity,
-        user_strokeColor: shapeDefaults.strokeColor,
-        user_strokeWidth: shapeDefaults.strokeWidth,
-        user_zone: shapeDefaults.zone,
+        fillColor: shapeDefaults.fillColor,
+        fillOpacity: shapeDefaults.fillOpacity,
+        strokeColor: shapeDefaults.strokeColor,
+        strokeWidth: shapeDefaults.strokeWidth,
+        zone: shapeDefaults.zone,
       }
       draw.add(feature)
     }

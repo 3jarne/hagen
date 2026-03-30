@@ -86,7 +86,7 @@ function App() {
   const handleShapeChange = useCallback(
     (partial: Partial<ShapeProperties>) => {
       // If changing zone category, apply preset colors
-      if (partial.zone && !isEditingSelection) {
+      if (partial.zone) {
         const preset = ZONE_PRESETS[partial.zone as ZoneCategory]
         if (preset) {
           setShapeDefaults((prev) => ({ ...prev, ...preset }))
