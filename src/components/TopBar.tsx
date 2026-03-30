@@ -14,6 +14,8 @@ import {
   MenubarRadioItem,
 } from "@/components/ui/menubar"
 import type { MapStyle } from "@/App"
+import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog"
+import { useState } from "react"
 
 interface TopBarProps {
   zoomLevel: number
@@ -54,6 +56,7 @@ export function TopBar({
   onZoomOut,
   onResetView,
 }: TopBarProps) {
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex items-center h-10 border-b bg-background">
       <Menubar className="border-none rounded-none h-full shadow-none">
@@ -130,7 +133,7 @@ export function TopBar({
         <MenubarMenu>
           <MenubarTrigger>Help</MenubarTrigger>
           <MenubarContent>
-            <MenubarItem disabled>Keyboard shortcuts</MenubarItem>
+            <MenubarItem onClick={() => setShortcutsOpen(true)}>Keyboard shortcuts</MenubarItem>
           </MenubarContent>
         </MenubarMenu>
       </Menubar>
@@ -184,6 +187,7 @@ export function TopBar({
       >
         <Settings className="h-4 w-4" />
       </Button>
+      <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   )
 }
