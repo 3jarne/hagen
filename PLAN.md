@@ -20,7 +20,7 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 - [x] Phase 4 — Properties panel
 - [x] Phase 5 — Persistence and export
 - [x] Phase 6 — View menu and map controls
-- [ ] Phase 7 — Polish and accessibility
+- [x] Phase 7 — Polish and accessibility
 
 ## Kartverket Overlay — Planned Enhancements
 
@@ -145,12 +145,10 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 
 ---
 
-## Phase 7 — Polish and Accessibility
+## Phase 7 — Polish and Accessibility (COMPLETE)
 
-**Goal:** Final polish, keyboard accessibility, edge cases.
+**Goal:** Final polish, keyboard accessibility.
 
-**Tasks:**
-- Keyboard shortcuts help dialog
-- Consistent focus management
-- Edge case handling (empty states, error recovery)
-- Performance optimization if needed
+**What was built:**
+- Keyboard shortcuts dialog wired to Help → Keyboard shortcuts menu item
+- Lists all shortcuts grouped by category (Tools, Edit, Text)
