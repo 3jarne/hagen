@@ -297,7 +297,8 @@ export function MapView({
       map: mapboxgl.Map,
       lngLat: { lng: number; lat: number },
       initialValue: string,
-      onConfirm: (value: string) => void
+      onConfirm: (value: string) => void,
+      style?: { fontSize?: number; textColor?: string }
     ) => {
       removeTextInput()
       const point = map.project([lngLat.lng, lngLat.lat])
@@ -307,6 +308,8 @@ export function MapView({
       input.value = initialValue
       input.style.left = `${point.x}px`
       input.style.top = `${point.y}px`
+      if (style?.fontSize) input.style.fontSize = `${style.fontSize}px`
+      if (style?.textColor) input.style.color = style.textColor
 
       let confirmed = false
       const confirm = () => {
@@ -608,8 +611,8 @@ export function MapView({
       if (activeToolRef.current !== "text") return
       if (textInputRef.current) return // already editing
 
+      const td = textDefaultsRef.current
       showTextInput(map, e.lngLat, "", (value) => {
-        const td = textDefaultsRef.current
         const id = crypto.randomUUID()
         const feature: Feature = {
           type: "Feature",
@@ -625,13 +628,23 @@ export function MapView({
           },
         }
         textFeaturesRef.current = [...textFeaturesRef.current, feature]
+        // Auto-select the new text and switch to select tool
+        selectedTextIdsRef.current.clear()
+        selectedTextIdsRef.current.add(id)
         syncTextLabels(map)
+        onToolChange("select")
+        onPanelModeChange("text")
+        onEditingSelectionChange(true)
+        onTextDefaultsChange({
+          textColor: td.textColor,
+          fontSize: td.fontSize,
+        })
         history.push({
           drawFeatures: draw.getAll().features,
           textFeatures: [...textFeaturesRef.current],
         })
         saveToStorageRef.current?.()
-      })
+      }, { fontSize: td.fontSize, textColor: td.textColor })
     })
 
     // Select tool: click to select/deselect text labels
@@ -705,10 +718,11 @@ export function MapView({
       editingTextIdRef.current = hitId
       syncTextLabels(map) // hide the old text while editing
       const coords = (feature.geometry as GeoJSON.Point).coordinates
+      const props = feature.properties!
       showTextInput(
         map,
         { lng: coords[0], lat: coords[1] },
-        feature.properties!.label,
+        props.label,
         (value) => {
           textFeaturesRef.current = textFeaturesRef.current.map((f) =>
             f.properties!.id === hitId
@@ -722,7 +736,8 @@ export function MapView({
             textFeatures: [...textFeaturesRef.current],
           })
           saveToStorageRef.current?.()
-        }
+        },
+        { fontSize: props.fontSize, textColor: props.textColor }
       )
     })
 
@@ -948,11 +963,9 @@ export function MapView({
       draw.setFeatureProperty(id, "user_strokeWidth", shapeDefaults.strokeWidth)
       draw.setFeatureProperty(id, "user_zone", shapeDefaults.zone)
     }
-    // Force re-render with updated properties, suppress events to avoid circular reset
+    // Force visual update by re-entering simple_select with same selection
     suppressSelectionSync.current = true
     suppressModeSync.current = true
-    draw.set(draw.getAll())
-    // Re-select the features that were selected
     draw.changeMode("simple_select", { featureIds: selectedIds })
     requestAnimationFrame(() => {
       suppressSelectionSync.current = false
