@@ -82,7 +82,6 @@ export function MapView({
   const activeToolRef = useRef<Tool>(activeTool)
   const popupRef = useRef<mapboxgl.Popup | null>(null)
   const suppressModeSync = useRef(false)
-  const suppressSelectionSync = useRef(false)
   const shapeDefaultsRef = useRef(shapeDefaults)
   const textDefaultsRef = useRef(textDefaults)
 
@@ -97,6 +96,7 @@ export function MapView({
   const textFeaturesRef = useRef<Feature[]>([])
   const selectedTextIdsRef = useRef<Set<string>>(new Set())
   const textInputRef = useRef<HTMLInputElement | null>(null)
+  const textMeasurerRef = useRef<HTMLSpanElement | null>(null)
   const editingTextIdRef = useRef<string | null>(null)
   const draggingTextRef = useRef<{
     id: string
@@ -164,6 +164,70 @@ export function MapView({
     }
   }, [])
 
+  /** Update bounding box around selected text features */
+  const updateTextSelectionBbox = useCallback((map: mapboxgl.Map) => {
+    const source = map.getSource("text-selection-bbox") as mapboxgl.GeoJSONSource
+    if (!source) return
+
+    if (selectedTextIdsRef.current.size === 0) {
+      source.setData({ type: "FeatureCollection", features: [] })
+      return
+    }
+
+    // Offscreen canvas for text measurement
+    const canvas = document.createElement("canvas")
+    const ctx = canvas.getContext("2d")!
+    const bboxFeatures: Feature[] = []
+    const padding = 8
+
+    for (const id of selectedTextIdsRef.current) {
+      const textFeature = textFeaturesRef.current.find(
+        (f) => f.properties!.id === id
+      )
+      if (!textFeature) continue
+
+      const coords = (textFeature.geometry as GeoJSON.Point).coordinates
+      const center = map.project([coords[0], coords[1]])
+      const label = textFeature.properties!.label || ""
+      const fontSize = textFeature.properties!.fontSize || 16
+
+      ctx.font = `${fontSize}px 'Open Sans', Arial, sans-serif`
+      const textWidth = ctx.measureText(label).width
+      const halfW = textWidth / 2 + padding
+      const halfH = fontSize * 0.7 + padding
+
+      const tl = map.unproject([center.x - halfW, center.y - halfH])
+      const tr = map.unproject([center.x + halfW, center.y - halfH])
+      const br = map.unproject([center.x + halfW, center.y + halfH])
+      const bl = map.unproject([center.x - halfW, center.y + halfH])
+
+      // Rectangle polygon
+      bboxFeatures.push({
+        type: "Feature",
+        geometry: {
+          type: "Polygon",
+          coordinates: [[
+            [tl.lng, tl.lat], [tr.lng, tr.lat],
+            [br.lng, br.lat], [bl.lng, bl.lat],
+            [tl.lng, tl.lat],
+          ]],
+        },
+        properties: {},
+      })
+
+      // Corner dots
+      for (const corner of [tl, tr, br, bl]) {
+        bboxFeatures.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [corner.lng, corner.lat] },
+          properties: {},
+        })
+      }
+    }
+
+    source.setData({ type: "FeatureCollection", features: bboxFeatures })
+  }, [])
+
   /** Sync text features ref to the map GeoJSON source */
   const syncTextLabels = useCallback((map: mapboxgl.Map) => {
     const source = map.getSource("text-labels") as mapboxgl.GeoJSONSource
@@ -178,7 +242,8 @@ export function MapView({
         },
       }))
     source.setData({ type: "FeatureCollection", features })
-  }, [])
+    updateTextSelectionBbox(map)
+  }, [updateTextSelectionBbox])
 
   /** Build area label GeoJSON from completed draw features, with optional extra label */
   const buildAreaLabels = useCallback(
@@ -282,6 +347,10 @@ export function MapView({
       textInputRef.current.remove()
       textInputRef.current = null
     }
+    if (textMeasurerRef.current) {
+      textMeasurerRef.current.remove()
+      textMeasurerRef.current = null
+    }
     const wasEditing = editingTextIdRef.current !== null
     editingTextIdRef.current = null
     // Re-show hidden text if editing was cancelled
@@ -310,6 +379,24 @@ export function MapView({
       input.style.top = `${point.y}px`
       if (style?.fontSize) input.style.fontSize = `${style.fontSize}px`
       if (style?.textColor) input.style.color = style.textColor
+
+      // Auto-sizing: hidden span to measure text width
+      const measurer = document.createElement("span")
+      measurer.style.position = "absolute"
+      measurer.style.visibility = "hidden"
+      measurer.style.whiteSpace = "pre"
+      measurer.style.fontFamily = "'Open Sans', Arial, sans-serif"
+      measurer.style.fontSize = input.style.fontSize || "16px"
+      measurer.style.padding = "0 4px"
+      document.body.appendChild(measurer)
+      textMeasurerRef.current = measurer
+
+      const autoSize = () => {
+        measurer.textContent = input.value || "T"
+        input.style.width = `${Math.max(measurer.offsetWidth + 8, 20)}px`
+      }
+      input.addEventListener("input", autoSize)
+      autoSize()
 
       let confirmed = false
       const confirm = () => {
@@ -456,25 +543,46 @@ export function MapView({
           "text-allow-overlap": true,
         },
         paint: {
-          "text-color": [
-            "case",
-            ["==", ["get", "selected"], true],
-            "#93c5fd",
-            ["coalesce", ["get", "textColor"], "#ffffff"],
-          ],
-          "text-halo-color": [
-            "case",
-            ["==", ["get", "selected"], true],
-            "#1d4ed8",
-            "#000000",
-          ],
-          "text-halo-width": [
-            "case",
-            ["==", ["get", "selected"], true],
-            2.5,
-            1.5,
-          ],
+          "text-color": ["coalesce", ["get", "textColor"], "#ffffff"],
+          "text-halo-color": "#000000",
+          "text-halo-width": 1.5,
         },
+      })
+
+      // Text selection bounding box
+      map.addSource("text-selection-bbox", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      })
+      map.addLayer({
+        id: "text-selection-bbox-outline",
+        type: "line",
+        source: "text-selection-bbox",
+        filter: ["==", "$type", "Polygon"],
+        paint: {
+          "line-color": "#93c5fd",
+          "line-width": 1,
+          "line-dasharray": [4, 3],
+        },
+      })
+      map.addLayer({
+        id: "text-selection-bbox-corners",
+        type: "circle",
+        source: "text-selection-bbox",
+        filter: ["==", "$type", "Point"],
+        paint: {
+          "circle-radius": 4,
+          "circle-color": "#ffffff",
+          "circle-stroke-color": "#93c5fd",
+          "circle-stroke-width": 1.5,
+        },
+      })
+
+      // Recalculate text bbox on map move/zoom
+      map.on("move", () => {
+        if (selectedTextIdsRef.current.size > 0) {
+          updateTextSelectionBbox(map)
+        }
       })
 
       // Load saved project from localStorage
@@ -551,7 +659,6 @@ export function MapView({
 
     // Track selection and update properties panel
     map.on("draw.selectionchange", (e: { features: GeoJSON.Feature[] }) => {
-      if (suppressSelectionSync.current) return
       if (map.getLayer("area-labels")) {
         map.setLayoutProperty(
           "area-labels",
@@ -957,20 +1064,18 @@ export function MapView({
     if (selectedIds.length === 0) return
 
     for (const id of selectedIds) {
-      draw.setFeatureProperty(id, "user_fillColor", shapeDefaults.fillColor)
-      draw.setFeatureProperty(id, "user_fillOpacity", shapeDefaults.fillOpacity)
-      draw.setFeatureProperty(id, "user_strokeColor", shapeDefaults.strokeColor)
-      draw.setFeatureProperty(id, "user_strokeWidth", shapeDefaults.strokeWidth)
-      draw.setFeatureProperty(id, "user_zone", shapeDefaults.zone)
+      const feature = draw.get(id)
+      if (!feature) continue
+      feature.properties = {
+        ...feature.properties,
+        user_fillColor: shapeDefaults.fillColor,
+        user_fillOpacity: shapeDefaults.fillOpacity,
+        user_strokeColor: shapeDefaults.strokeColor,
+        user_strokeWidth: shapeDefaults.strokeWidth,
+        user_zone: shapeDefaults.zone,
+      }
+      draw.add(feature)
     }
-    // Force visual update by re-entering simple_select with same selection
-    suppressSelectionSync.current = true
-    suppressModeSync.current = true
-    draw.changeMode("simple_select", { featureIds: selectedIds })
-    requestAnimationFrame(() => {
-      suppressSelectionSync.current = false
-      suppressModeSync.current = false
-    })
     updateAreaLabels(map, draw)
     saveToStorage()
   }, [shapeDefaults, updateAreaLabels, saveToStorage])
@@ -1138,24 +1243,40 @@ export function MapView({
             "text-allow-overlap": true,
           },
           paint: {
-            "text-color": [
-              "case",
-              ["==", ["get", "selected"], true],
-              "#93c5fd",
-              ["coalesce", ["get", "textColor"], "#ffffff"],
-            ],
-            "text-halo-color": [
-              "case",
-              ["==", ["get", "selected"], true],
-              "#1d4ed8",
-              "#000000",
-            ],
-            "text-halo-width": [
-              "case",
-              ["==", ["get", "selected"], true],
-              2.5,
-              1.5,
-            ],
+            "text-color": ["coalesce", ["get", "textColor"], "#ffffff"],
+            "text-halo-color": "#000000",
+            "text-halo-width": 1.5,
+          },
+        })
+      }
+
+      // Re-add text selection bbox
+      if (!map.getSource("text-selection-bbox")) {
+        map.addSource("text-selection-bbox", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        })
+        map.addLayer({
+          id: "text-selection-bbox-outline",
+          type: "line",
+          source: "text-selection-bbox",
+          filter: ["==", "$type", "Polygon"],
+          paint: {
+            "line-color": "#93c5fd",
+            "line-width": 1,
+            "line-dasharray": [4, 3],
+          },
+        })
+        map.addLayer({
+          id: "text-selection-bbox-corners",
+          type: "circle",
+          source: "text-selection-bbox",
+          filter: ["==", "$type", "Point"],
+          paint: {
+            "circle-radius": 4,
+            "circle-color": "#ffffff",
+            "circle-stroke-color": "#93c5fd",
+            "circle-stroke-width": 1.5,
           },
         })
       }
