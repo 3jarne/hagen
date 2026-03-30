@@ -22,24 +22,23 @@ Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Ma
 - [x] Phase 6 — View menu and map controls
 - [x] Phase 7 — Polish and accessibility
 
-## Kartverket Overlay — Planned Enhancements
+## Post-v1 Features
 
-- **Toggle on/off**: Wire the View menu "Kartverket overlay" checkbox to show/hide the overlay
-- **Opacity slider**: Add a slider (in View menu or settings) to adjust overlay translucency (0–100%)
-- Target: Phase 6 (View menu wiring)
+### Transform handles (shapes + text)
+- **Rotation**: Free rotation handle (drag to rotate around centroid, no snapping)
+- **Scaling**: Non-proportional — corner handles scale freely, edge handles stretch one axis
+- **Applies to shapes AND text**: Text becomes a text box (like Illustrator/Figma) — text reflows to fill the bounding box when resized
+- **Circle → ellipse**: Circles use the same non-proportional scaling, so dragging a corner/edge stretches into an ellipse
 
-## Shape Editing — Planned Enhancements
+### Pen/line tool
+- **Two modes**: Click-click for straight line segments (open path), hold-and-drag for freehand drawing
+- **Non-proportional scaling** applies here too — lines/paths can be stretched
+- **Arrow heads**: Optional start/end arrow head toggle in properties panel (for directional annotations like flow, paths)
+- **Properties**: Stroke color, width (same as shapes). Dashes/patterns TBD later
 
-- **Rotation**: Add rotation handles when a shape is selected (rotate around centroid)
-- **Scaling**: Add scale handles (corner/edge drag to resize) when a shape is selected
-- **Circle edit handles**: Show only 4 cardinal handles (N/S/E/W) instead of all 64 polygon vertices
-- Target: Phase 7 (Polish) or post-v1
-
-## Pen/Line Tool — Planned
-
-- **Pen tool**: Freeform line drawing tool (open paths, not closed shapes)
-- Could be used for paths, borders, annotations
-- Target: post-v1
+### Measurement tool
+- **Dedicated tool in toolbar**: Measure distances and areas directly on the map
+- Specifics TBD
 
 ---
 
