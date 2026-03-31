@@ -718,11 +718,6 @@ export function MapView({
     onZoomChange(CONFIG.defaultZoom)
 
     map.on("load", () => {
-      // Diagnostic: check draw layers at load time
-      const layersAtLoad = map.getStyle().layers?.filter(l => l.id.includes("draw")) || []
-      console.log("[DEBUG load] draw layers at load:", layersAtLoad.map(l => l.id))
-      console.log("[DEBUG load] total layers at load:", map.getStyle().layers?.length)
-
       // Add all custom layers
       addKartverketLayer(map)
       addUserPlotLayer(map)
@@ -766,11 +761,10 @@ export function MapView({
     // Draw events
     map.on("draw.create", (e: { features: GeoJSON.Feature[] }) => {
       const defaults = shapeDefaultsRef.current
-      console.log("[DEBUG draw.create] defaults:", JSON.stringify(defaults))
       for (const feature of e.features) {
         const id = feature.id as string
         const current = draw.get(id)
-        if (!current) { console.log("[DEBUG draw.create] draw.get returned null for id:", id); continue }
+        if (!current) continue
         current.properties = {
           ...current.properties,
           fillColor: defaults.fillColor,
@@ -780,16 +774,7 @@ export function MapView({
           zone: defaults.zone,
         }
         draw.add(current)
-        console.log("[DEBUG draw.create] feature added with props:", JSON.stringify(current.properties))
       }
-      // Diagnostic: dump draw layers and sources
-      const drawLayers = map.getStyle().layers?.filter(l => l.id.includes("draw")) || []
-      console.log("[DEBUG draw.create] draw layers on map:", drawLayers.map(l => l.id))
-      const coldSrc = map.getSource("mapbox-gl-draw-cold")
-      const hotSrc = map.getSource("mapbox-gl-draw-hot")
-      console.log("[DEBUG draw.create] cold source exists:", !!coldSrc, "hot source exists:", !!hotSrc)
-      console.log("[DEBUG draw.create] all draw features:", JSON.stringify(draw.getAll().features.map(f => ({ id: f.id, type: f.geometry?.type, props: f.properties }))))
-
       updateAreaLabels(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
