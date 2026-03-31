@@ -38,7 +38,7 @@ function App() {
   const [kartverketVisible, setKartverketVisible] = useState(true)
   const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
 
-  // Properties panel state
+  // Properties panel state — global defaults (never overwritten by selection)
   const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
     ...DEFAULT_SHAPE,
   })
@@ -48,6 +48,14 @@ function App() {
   const [lineDefaults, setLineDefaults] = useState<LineProperties>({
     ...DEFAULT_LINE,
   })
+  // Selected element properties (null when nothing selected)
+  const [selectedShapeProps, setSelectedShapeProps] =
+    useState<ShapeProperties | null>(null)
+  const [selectedTextProps, setSelectedTextProps] =
+    useState<TextProperties | null>(null)
+  const [selectedLineProps, setSelectedLineProps] =
+    useState<LineProperties | null>(null)
+
   const [panelMode, setPanelMode] = useState<PanelMode>("none")
   // Track whether we're showing defaults or editing a selection
   const [isEditingSelection, setIsEditingSelection] = useState(false)
@@ -88,28 +96,59 @@ function App() {
     exportPNGRef.current?.()
   }, [])
 
+  const handleEditingSelectionChange = useCallback((editing: boolean) => {
+    setIsEditingSelection(editing)
+    if (!editing) {
+      setSelectedShapeProps(null)
+      setSelectedTextProps(null)
+      setSelectedLineProps(null)
+    }
+  }, [])
+
   const handleShapeChange = useCallback(
     (partial: Partial<ShapeProperties>) => {
       // If changing zone category, apply preset colors
       if (partial.zone) {
         const preset = ZONE_PRESETS[partial.zone as ZoneCategory]
         if (preset) {
-          setShapeDefaults((prev) => ({ ...prev, ...preset }))
+          if (isEditingSelection) {
+            setSelectedShapeProps((prev) => (prev ? { ...prev, ...preset } : prev))
+          } else {
+            setShapeDefaults((prev) => ({ ...prev, ...preset }))
+          }
           return
         }
       }
-      setShapeDefaults((prev) => ({ ...prev, ...partial }))
+      if (isEditingSelection) {
+        setSelectedShapeProps((prev) => (prev ? { ...prev, ...partial } : prev))
+      } else {
+        setShapeDefaults((prev) => ({ ...prev, ...partial }))
+      }
     },
     [isEditingSelection]
   )
 
-  const handleTextChange = useCallback((partial: Partial<TextProperties>) => {
-    setTextDefaults((prev) => ({ ...prev, ...partial }))
-  }, [])
+  const handleTextChange = useCallback(
+    (partial: Partial<TextProperties>) => {
+      if (isEditingSelection) {
+        setSelectedTextProps((prev) => (prev ? { ...prev, ...partial } : prev))
+      } else {
+        setTextDefaults((prev) => ({ ...prev, ...partial }))
+      }
+    },
+    [isEditingSelection]
+  )
 
-  const handleLineChange = useCallback((partial: Partial<LineProperties>) => {
-    setLineDefaults((prev) => ({ ...prev, ...partial }))
-  }, [])
+  const handleLineChange = useCallback(
+    (partial: Partial<LineProperties>) => {
+      if (isEditingSelection) {
+        setSelectedLineProps((prev) => (prev ? { ...prev, ...partial } : prev))
+      } else {
+        setLineDefaults((prev) => ({ ...prev, ...partial }))
+      }
+    },
+    [isEditingSelection]
+  )
 
   // Determine panel visibility
   const isDrawTool =
@@ -152,11 +191,14 @@ function App() {
         shapeDefaults={shapeDefaults}
         textDefaults={textDefaults}
         lineDefaults={lineDefaults}
-        onShapeDefaultsChange={setShapeDefaults}
-        onTextDefaultsChange={setTextDefaults}
-        onLineDefaultsChange={setLineDefaults}
+        selectedShapeProps={selectedShapeProps}
+        selectedTextProps={selectedTextProps}
+        selectedLineProps={selectedLineProps}
+        onSelectedShapeChange={setSelectedShapeProps}
+        onSelectedTextChange={setSelectedTextProps}
+        onSelectedLineChange={setSelectedLineProps}
         onPanelModeChange={setPanelMode}
-        onEditingSelectionChange={setIsEditingSelection}
+        onEditingSelectionChange={handleEditingSelectionChange}
         exportJSONRef={exportJSONRef}
         exportPNGRef={exportPNGRef}
         mapStyle={mapStyle}
@@ -170,9 +212,9 @@ function App() {
       <PropertiesPanel
         visible={showPanel}
         mode={isLineTool ? "line" : isDrawTool ? "shape" : isTextTool ? "text" : panelMode}
-        shapeProps={shapeDefaults}
-        textProps={textDefaults}
-        lineProps={lineDefaults}
+        shapeProps={selectedShapeProps ?? shapeDefaults}
+        textProps={selectedTextProps ?? textDefaults}
+        lineProps={selectedLineProps ?? lineDefaults}
         onShapeChange={handleShapeChange}
         onTextChange={handleTextChange}
         onLineChange={handleLineChange}

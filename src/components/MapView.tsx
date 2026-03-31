@@ -17,14 +17,16 @@ import type { ShapeProperties, TextProperties, LineProperties } from "@/lib/zone
 import { distanceMeters, formatDistance } from "@/lib/measurement"
 import { simplify } from "@/lib/simplify"
 import type { PanelMode, MapStyle } from "@/App"
-
-const STORAGE_KEY = "hageplan-project"
-
-interface SavedProject {
-  drawFeatures: Feature[]
-  textFeatures: Feature[]
-  lineFeatures?: Feature[]
-}
+import {
+  addKartverketLayer,
+  addAreaLabelsLayer,
+  addTextLabelsLayers,
+  addLineFeatureLayers,
+  addMeasurementLayers,
+  restoreLayersAfterStyleChange,
+} from "@/lib/map-layers"
+import { loadProject, saveProject } from "@/lib/storage"
+import { exportJSON, exportPNG } from "@/lib/export"
 
 interface MapViewProps {
   onZoomChange: (zoom: number) => void
@@ -36,9 +38,12 @@ interface MapViewProps {
   shapeDefaults: ShapeProperties
   textDefaults: TextProperties
   lineDefaults: LineProperties
-  onShapeDefaultsChange: (props: ShapeProperties) => void
-  onTextDefaultsChange: (props: TextProperties) => void
-  onLineDefaultsChange: (props: LineProperties) => void
+  selectedShapeProps: ShapeProperties | null
+  selectedTextProps: TextProperties | null
+  selectedLineProps: LineProperties | null
+  onSelectedShapeChange: (props: ShapeProperties | null) => void
+  onSelectedTextChange: (props: TextProperties | null) => void
+  onSelectedLineChange: (props: LineProperties | null) => void
   onPanelModeChange: (mode: PanelMode) => void
   onEditingSelectionChange: (editing: boolean) => void
   exportJSONRef: React.MutableRefObject<(() => void) | null>
@@ -68,9 +73,12 @@ export function MapView({
   shapeDefaults,
   textDefaults,
   lineDefaults,
-  onShapeDefaultsChange,
-  onTextDefaultsChange,
-  onLineDefaultsChange,
+  selectedShapeProps,
+  selectedTextProps,
+  selectedLineProps,
+  onSelectedShapeChange,
+  onSelectedTextChange,
+  onSelectedLineChange,
   onPanelModeChange,
   onEditingSelectionChange,
   exportJSONRef,
@@ -156,16 +164,7 @@ export function MapView({
     saveTimerRef.current = setTimeout(() => {
       const draw = drawRef.current
       if (!draw) return
-      const project: SavedProject = {
-        drawFeatures: draw.getAll().features,
-        textFeatures: [...textFeaturesRef.current],
-        lineFeatures: [...lineFeaturesRef.current],
-      }
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(project))
-      } catch {
-        // Storage full or unavailable — silent fail
-      }
+      saveProject(draw, textFeaturesRef.current, lineFeaturesRef.current)
     }, 500)
   }, [])
 
@@ -719,276 +718,13 @@ export function MapView({
     onZoomChange(CONFIG.defaultZoom)
 
     map.on("load", () => {
-      // Kartverket topo below draw layers
-      map.addSource("kartverket-topo", {
-        type: "raster",
-        tiles: [
-          "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
-        ],
-        tileSize: 256,
-        minzoom: 14,
-        maxzoom: 18,
-      })
-      const layers = map.getStyle().layers || []
-      const firstDrawLayer = layers.find((l) => l.id.startsWith("gl-draw-"))
-      map.addLayer(
-        {
-          id: "kartverket-topo",
-          type: "raster",
-          source: "kartverket-topo",
-          paint: { "raster-opacity": 0.4 },
-        },
-        firstDrawLayer?.id
-      )
-
+      // Add all custom layers
+      addKartverketLayer(map)
       addUserPlotLayer(map)
-
-      // Area labels layer
-      map.addSource("area-labels", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      })
-      map.addLayer({
-        id: "area-labels",
-        type: "symbol",
-        source: "area-labels",
-        layout: {
-          "text-field": ["get", "label"],
-          "text-size": 13,
-          "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
-          "text-allow-overlap": true,
-        },
-        paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#000000",
-          "text-halo-width": 1.5,
-        },
-      })
-
-      // Text labels layer
-      map.addSource("text-labels", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      })
-      map.addLayer({
-        id: "text-labels",
-        type: "symbol",
-        source: "text-labels",
-        layout: {
-          "text-field": ["get", "label"],
-          "text-size": ["coalesce", ["get", "fontSize"], 16],
-          "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
-          "text-allow-overlap": true,
-        },
-        paint: {
-          "text-color": ["coalesce", ["get", "textColor"], "#ffffff"],
-          "text-halo-color": "#000000",
-          "text-halo-width": 1.5,
-        },
-      })
-
-      // Text selection bounding box
-      map.addSource("text-selection-bbox", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      })
-      map.addLayer({
-        id: "text-selection-bbox-outline",
-        type: "line",
-        source: "text-selection-bbox",
-        filter: ["==", "$type", "Polygon"],
-        paint: {
-          "line-color": "#93c5fd",
-          "line-width": 1,
-          "line-dasharray": [4, 3],
-        },
-      })
-      map.addLayer({
-        id: "text-selection-bbox-corners",
-        type: "circle",
-        source: "text-selection-bbox",
-        filter: ["==", "$type", "Point"],
-        paint: {
-          "circle-radius": 4,
-          "circle-color": "#ffffff",
-          "circle-stroke-color": "#93c5fd",
-          "circle-stroke-width": 1.5,
-        },
-      })
-
-      // Arrow head image for line tool
-      const arrowSize = 24
-      const arrowCanvas = document.createElement("canvas")
-      arrowCanvas.width = arrowSize
-      arrowCanvas.height = arrowSize
-      const arrowCtx = arrowCanvas.getContext("2d")!
-      arrowCtx.fillStyle = "#ffffff"
-      arrowCtx.beginPath()
-      arrowCtx.moveTo(arrowSize / 2, 0)
-      arrowCtx.lineTo(arrowSize, arrowSize)
-      arrowCtx.lineTo(arrowSize / 2, arrowSize * 0.7)
-      arrowCtx.lineTo(0, arrowSize)
-      arrowCtx.closePath()
-      arrowCtx.fill()
-      const arrowImageData = arrowCtx.getImageData(0, 0, arrowSize, arrowSize)
-      map.addImage("arrow-head", { width: arrowSize, height: arrowSize, data: arrowImageData.data as unknown as Uint8Array }, { sdf: true })
-
-      // Line features source + layers
-      map.addSource("line-features", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      })
-      map.addLayer({
-        id: "line-features-stroke",
-        type: "line",
-        source: "line-features",
-        filter: ["==", "$type", "LineString"],
-        paint: {
-          "line-color": ["coalesce", ["get", "strokeColor"], "#ffffff"],
-          "line-width": ["coalesce", ["get", "strokeWidth"], 2],
-        },
-        layout: { "line-cap": "round", "line-join": "round" },
-      })
-      map.addLayer({
-        id: "line-features-arrows",
-        type: "symbol",
-        source: "line-features",
-        filter: ["has", "arrowType"],
-        layout: {
-          "icon-image": "arrow-head",
-          "icon-size": 0.6,
-          "icon-rotate": ["get", "bearing"],
-          "icon-allow-overlap": true,
-          "icon-rotation-alignment": "map",
-        },
-        paint: {
-          "icon-color": ["coalesce", ["get", "strokeColor"], "#ffffff"],
-        },
-      })
-
-      // Line selection bbox
-      map.addSource("line-selection-bbox", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      })
-      map.addLayer({
-        id: "line-selection-bbox-fill",
-        type: "fill",
-        source: "line-selection-bbox",
-        filter: ["==", "$type", "Polygon"],
-        paint: { "fill-opacity": 0 },
-      })
-      map.addLayer({
-        id: "line-selection-bbox-outline",
-        type: "line",
-        source: "line-selection-bbox",
-        filter: ["==", "$type", "Polygon"],
-        paint: {
-          "line-color": "#93c5fd",
-          "line-width": 1,
-          "line-dasharray": [4, 3],
-        },
-      })
-      map.addLayer({
-        id: "line-selection-bbox-corners",
-        type: "circle",
-        source: "line-selection-bbox",
-        filter: ["==", "$type", "Point"],
-        paint: {
-          "circle-radius": 4,
-          "circle-color": "#ffffff",
-          "circle-stroke-color": "#93c5fd",
-          "circle-stroke-width": 1.5,
-        },
-      })
-
-      // Invisible wider hit area for line selection
-      map.addLayer({
-        id: "line-features-hit",
-        type: "line",
-        source: "line-features",
-        filter: ["==", "$type", "LineString"],
-        paint: {
-          "line-color": "transparent",
-          "line-width": 14,
-          "line-opacity": 0,
-        },
-      })
-
-      // Line drawing preview
-      map.addSource("line-drawing-preview", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      })
-      map.addLayer({
-        id: "line-drawing-preview",
-        type: "line",
-        source: "line-drawing-preview",
-        paint: {
-          "line-color": "#ffffff",
-          "line-width": 2,
-          "line-dasharray": [4, 3],
-        },
-        layout: { "line-cap": "round", "line-join": "round" },
-      })
-
-      // Measurement overlay source + layers
-      map.addSource("measurement-overlay", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      })
-      map.addLayer({
-        id: "measurement-lines",
-        type: "line",
-        source: "measurement-overlay",
-        filter: ["==", ["get", "type"], "line"],
-        paint: {
-          "line-color": "#fbbf24",
-          "line-width": 2,
-        },
-        layout: { "line-cap": "round" },
-      })
-      map.addLayer({
-        id: "measurement-closing-line",
-        type: "line",
-        source: "measurement-overlay",
-        filter: ["==", ["get", "type"], "closing-line"],
-        paint: {
-          "line-color": "#fbbf24",
-          "line-width": 1.5,
-          "line-dasharray": [4, 3],
-        },
-      })
-      map.addLayer({
-        id: "measurement-points",
-        type: "circle",
-        source: "measurement-overlay",
-        filter: ["==", ["get", "type"], "dot"],
-        paint: {
-          "circle-radius": 5,
-          "circle-color": "#fbbf24",
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 2,
-        },
-      })
-      map.addLayer({
-        id: "measurement-labels",
-        type: "symbol",
-        source: "measurement-overlay",
-        filter: ["in", ["get", "type"], ["literal", ["label", "total", "area-label"]]],
-        layout: {
-          "text-field": ["get", "label"],
-          "text-size": 13,
-          "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
-          "text-allow-overlap": true,
-          "text-offset": [0, -1.2],
-        },
-        paint: {
-          "text-color": "#fbbf24",
-          "text-halo-color": "#000000",
-          "text-halo-width": 1.5,
-        },
-      })
+      addAreaLabelsLayer(map)
+      addTextLabelsLayers(map)
+      addLineFeatureLayers(map)
+      addMeasurementLayers(map)
 
       // Recalculate text and line bbox on map move/zoom
       map.on("move", () => {
@@ -1002,33 +738,17 @@ export function MapView({
 
       // Load saved project from localStorage
       let loaded = false
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY)
-        if (raw) {
-          const saved: SavedProject = JSON.parse(raw)
-          if (saved.drawFeatures?.length || saved.textFeatures?.length || saved.lineFeatures?.length) {
-            for (const feature of saved.drawFeatures || []) {
-              // Migrate old user_-prefixed property names
-              if (feature.properties) {
-                for (const key of Object.keys(feature.properties)) {
-                  if (key.startsWith("user_")) {
-                    feature.properties[key.slice(5)] = feature.properties[key]
-                    delete feature.properties[key]
-                  }
-                }
-              }
-              draw.add(feature)
-            }
-            textFeaturesRef.current = saved.textFeatures || []
-            lineFeaturesRef.current = saved.lineFeatures || []
-            syncTextLabels(map)
-            syncLineFeatures(map)
-            updateAreaLabels(map, draw)
-            loaded = true
-          }
+      const saved = loadProject()
+      if (saved) {
+        for (const feature of saved.drawFeatures || []) {
+          draw.add(feature)
         }
-      } catch {
-        // Corrupt data — ignore
+        textFeaturesRef.current = saved.textFeatures || []
+        lineFeaturesRef.current = saved.lineFeatures || []
+        syncTextLabels(map)
+        syncLineFeatures(map)
+        updateAreaLabels(map, draw)
+        loaded = true
       }
 
       history.push({
@@ -1107,7 +827,7 @@ export function MapView({
         const props = f.properties || {}
         onPanelModeChange("shape")
         onEditingSelectionChange(true)
-        onShapeDefaultsChange({
+        onSelectedShapeChange({
           fillColor: props.fillColor || "#4ade80",
           fillOpacity: props.fillOpacity ?? 0.4,
           strokeColor: props.strokeColor || "#4ade80",
@@ -1178,7 +898,7 @@ export function MapView({
         onToolChange("select")
         onPanelModeChange("text")
         onEditingSelectionChange(true)
-        onTextDefaultsChange({
+        onSelectedTextChange({
           textColor: td.textColor,
           fontSize: td.fontSize,
         })
@@ -1226,7 +946,7 @@ export function MapView({
         if (feature) {
           onPanelModeChange("text")
           onEditingSelectionChange(true)
-          onTextDefaultsChange({
+          onSelectedTextChange({
             textColor: feature.properties!.textColor || "#ffffff",
             fontSize: feature.properties!.fontSize || 16,
           })
@@ -1251,7 +971,7 @@ export function MapView({
           if (lineFeature) {
             onPanelModeChange("line")
             onEditingSelectionChange(true)
-            onLineDefaultsChange({
+            onSelectedLineChange({
               strokeColor: lineFeature.properties!.strokeColor || "#ffffff",
               strokeWidth: lineFeature.properties!.strokeWidth ?? 2,
               startArrow: lineFeature.properties!.startArrow || false,
@@ -1457,7 +1177,7 @@ export function MapView({
         onToolChange("select")
         onPanelModeChange("line")
         onEditingSelectionChange(true)
-        onLineDefaultsChange(ld)
+        onSelectedLineChange(ld)
         history.push({
           drawFeatures: draw.getAll().features,
           textFeatures: [...textFeaturesRef.current],
@@ -1525,7 +1245,7 @@ export function MapView({
       onToolChange("select")
       onPanelModeChange("line")
       onEditingSelectionChange(true)
-      onLineDefaultsChange(ld)
+      onSelectedLineChange(ld)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -1797,15 +1517,15 @@ export function MapView({
     onToolChange,
     onPanelModeChange,
     onEditingSelectionChange,
-    onShapeDefaultsChange,
-    onTextDefaultsChange,
+    onSelectedShapeChange,
+    onSelectedTextChange,
     addUserPlotLayer,
     updateAreaLabels,
     syncTextLabels,
     syncLineFeatures,
     syncMeasurement,
     showTextInput,
-    onLineDefaultsChange,
+    onSelectedLineChange,
   ])
 
   // Sync active tool to draw mode + manage dragPan
@@ -1897,8 +1617,9 @@ export function MapView({
     }
   }, [activeTool, removeTextInput, syncLineFeatures])
 
-  // Live-edit selected shape features when shapeDefaults change
+  // Live-edit selected shape features when selectedShapeProps change
   useEffect(() => {
+    if (!selectedShapeProps) return
     const draw = drawRef.current
     const map = mapRef.current
     if (!draw || !map) return
@@ -1910,20 +1631,21 @@ export function MapView({
       if (!feature) continue
       feature.properties = {
         ...feature.properties,
-        fillColor: shapeDefaults.fillColor,
-        fillOpacity: shapeDefaults.fillOpacity,
-        strokeColor: shapeDefaults.strokeColor,
-        strokeWidth: shapeDefaults.strokeWidth,
-        zone: shapeDefaults.zone,
+        fillColor: selectedShapeProps.fillColor,
+        fillOpacity: selectedShapeProps.fillOpacity,
+        strokeColor: selectedShapeProps.strokeColor,
+        strokeWidth: selectedShapeProps.strokeWidth,
+        zone: selectedShapeProps.zone,
       }
       draw.add(feature)
     }
     updateAreaLabels(map, draw)
     saveToStorage()
-  }, [shapeDefaults, updateAreaLabels, saveToStorage])
+  }, [selectedShapeProps, updateAreaLabels, saveToStorage])
 
-  // Live-edit selected text features when textDefaults change
+  // Live-edit selected text features when selectedTextProps change
   useEffect(() => {
+    if (!selectedTextProps) return
     const map = mapRef.current
     if (!map) return
     if (selectedTextIdsRef.current.size === 0) return
@@ -1934,17 +1656,18 @@ export function MapView({
         ...f,
         properties: {
           ...f.properties!,
-          textColor: textDefaults.textColor,
-          fontSize: textDefaults.fontSize,
+          textColor: selectedTextProps.textColor,
+          fontSize: selectedTextProps.fontSize,
         },
       }
     })
     syncTextLabels(map)
     saveToStorage()
-  }, [textDefaults, syncTextLabels, saveToStorage])
+  }, [selectedTextProps, syncTextLabels, saveToStorage])
 
-  // Live-edit selected line features when lineDefaults change
+  // Live-edit selected line features when selectedLineProps change
   useEffect(() => {
+    if (!selectedLineProps) return
     const map = mapRef.current
     if (!map) return
     if (selectedLineIdsRef.current.size === 0) return
@@ -1955,50 +1678,28 @@ export function MapView({
         ...f,
         properties: {
           ...f.properties!,
-          strokeColor: lineDefaults.strokeColor,
-          strokeWidth: lineDefaults.strokeWidth,
-          startArrow: lineDefaults.startArrow,
-          endArrow: lineDefaults.endArrow,
+          strokeColor: selectedLineProps.strokeColor,
+          strokeWidth: selectedLineProps.strokeWidth,
+          startArrow: selectedLineProps.startArrow,
+          endArrow: selectedLineProps.endArrow,
         },
       }
     })
     syncLineFeatures(map)
     saveToStorage()
-  }, [lineDefaults, syncLineFeatures, saveToStorage])
+  }, [selectedLineProps, syncLineFeatures, saveToStorage])
 
   // Export functions
   const handleExportJSON = useCallback(() => {
     const draw = drawRef.current
     if (!draw) return
-    const project: SavedProject = {
-      drawFeatures: draw.getAll().features,
-      textFeatures: [...textFeaturesRef.current],
-      lineFeatures: [...lineFeaturesRef.current],
-    }
-    const blob = new Blob([JSON.stringify(project, null, 2)], {
-      type: "application/json",
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "hageplan.json"
-    a.click()
-    URL.revokeObjectURL(url)
+    exportJSON(draw, textFeaturesRef.current, lineFeaturesRef.current)
   }, [])
 
   const handleExportPNG = useCallback(() => {
     const map = mapRef.current
     if (!map) return
-    const canvas = map.getCanvas()
-    canvas.toBlob((blob) => {
-      if (!blob) return
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = "hageplan.png"
-      a.click()
-      URL.revokeObjectURL(url)
-    })
+    exportPNG(map)
   }, [])
 
   useEffect(() => {
@@ -2042,262 +1743,10 @@ export function MapView({
     map.setStyle(style)
 
     map.once("style.load", () => {
-      // Re-add Kartverket overlay
-      if (!map.getSource("kartverket-topo")) {
-        map.addSource("kartverket-topo", {
-          type: "raster",
-          tiles: [
-            "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
-          ],
-          tileSize: 256,
-          minzoom: 14,
-          maxzoom: 18,
-        })
-      }
-      const layers = map.getStyle().layers || []
-      const firstDrawLayer = layers.find((l) => l.id.startsWith("gl-draw-"))
-      if (!map.getLayer("kartverket-topo")) {
-        map.addLayer(
-          {
-            id: "kartverket-topo",
-            type: "raster",
-            source: "kartverket-topo",
-            paint: { "raster-opacity": kartverketVisible ? kartverketOpacity : 0 },
-            layout: { visibility: kartverketVisible ? "visible" : "none" },
-          },
-          firstDrawLayer?.id
-        )
-      }
-
-      // Re-add area labels
-      if (!map.getSource("area-labels")) {
-        map.addSource("area-labels", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        })
-        map.addLayer({
-          id: "area-labels",
-          type: "symbol",
-          source: "area-labels",
-          layout: {
-            "text-field": ["get", "label"],
-            "text-size": 13,
-            "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
-            "text-allow-overlap": true,
-          },
-          paint: {
-            "text-color": "#ffffff",
-            "text-halo-color": "#000000",
-            "text-halo-width": 1.5,
-          },
-        })
-      }
-
-      // Re-add text labels
-      if (!map.getSource("text-labels")) {
-        map.addSource("text-labels", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        })
-        map.addLayer({
-          id: "text-labels",
-          type: "symbol",
-          source: "text-labels",
-          layout: {
-            "text-field": ["get", "label"],
-            "text-size": ["coalesce", ["get", "fontSize"], 16],
-            "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
-            "text-allow-overlap": true,
-          },
-          paint: {
-            "text-color": ["coalesce", ["get", "textColor"], "#ffffff"],
-            "text-halo-color": "#000000",
-            "text-halo-width": 1.5,
-          },
-        })
-      }
-
-      // Re-add text selection bbox
-      if (!map.getSource("text-selection-bbox")) {
-        map.addSource("text-selection-bbox", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        })
-        map.addLayer({
-          id: "text-selection-bbox-outline",
-          type: "line",
-          source: "text-selection-bbox",
-          filter: ["==", "$type", "Polygon"],
-          paint: {
-            "line-color": "#93c5fd",
-            "line-width": 1,
-            "line-dasharray": [4, 3],
-          },
-        })
-        map.addLayer({
-          id: "text-selection-bbox-corners",
-          type: "circle",
-          source: "text-selection-bbox",
-          filter: ["==", "$type", "Point"],
-          paint: {
-            "circle-radius": 4,
-            "circle-color": "#ffffff",
-            "circle-stroke-color": "#93c5fd",
-            "circle-stroke-width": 1.5,
-          },
-        })
-      }
-
-      // Re-add line features layers
-      if (!map.getSource("line-features")) {
-        // Re-add arrow image
-        const ac = document.createElement("canvas")
-        ac.width = 24; ac.height = 24
-        const actx = ac.getContext("2d")!
-        actx.fillStyle = "#ffffff"
-        actx.beginPath()
-        actx.moveTo(12, 0); actx.lineTo(24, 24); actx.lineTo(12, 16.8); actx.lineTo(0, 24)
-        actx.closePath(); actx.fill()
-        const aid = actx.getImageData(0, 0, 24, 24)
-        if (!map.hasImage("arrow-head")) map.addImage("arrow-head", { width: 24, height: 24, data: aid.data as unknown as Uint8Array }, { sdf: true })
-
-        map.addSource("line-features", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        })
-        map.addLayer({
-          id: "line-features-stroke",
-          type: "line",
-          source: "line-features",
-          filter: ["==", "$type", "LineString"],
-          paint: {
-            "line-color": ["coalesce", ["get", "strokeColor"], "#ffffff"],
-            "line-width": ["coalesce", ["get", "strokeWidth"], 2],
-          },
-          layout: { "line-cap": "round", "line-join": "round" },
-        })
-        map.addLayer({
-          id: "line-features-arrows",
-          type: "symbol",
-          source: "line-features",
-          filter: ["has", "arrowType"],
-          layout: {
-            "icon-image": "arrow-head",
-            "icon-size": 0.6,
-            "icon-rotate": ["get", "bearing"],
-            "icon-allow-overlap": true,
-            "icon-rotation-alignment": "map",
-          },
-          paint: {
-            "icon-color": ["coalesce", ["get", "strokeColor"], "#ffffff"],
-          },
-        })
-      }
-
-      // Re-add line selection bbox
-      if (!map.getSource("line-selection-bbox")) {
-        map.addSource("line-selection-bbox", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        })
-        map.addLayer({
-          id: "line-selection-bbox-fill",
-          type: "fill",
-          source: "line-selection-bbox",
-          filter: ["==", "$type", "Polygon"],
-          paint: { "fill-opacity": 0 },
-        })
-        map.addLayer({
-          id: "line-selection-bbox-outline",
-          type: "line",
-          source: "line-selection-bbox",
-          filter: ["==", "$type", "Polygon"],
-          paint: { "line-color": "#93c5fd", "line-width": 1, "line-dasharray": [4, 3] },
-        })
-        map.addLayer({
-          id: "line-selection-bbox-corners",
-          type: "circle",
-          source: "line-selection-bbox",
-          filter: ["==", "$type", "Point"],
-          paint: { "circle-radius": 4, "circle-color": "#ffffff", "circle-stroke-color": "#93c5fd", "circle-stroke-width": 1.5 },
-        })
-      }
-
-      // Re-add line hit area
-      if (!map.getLayer("line-features-hit") && map.getSource("line-features")) {
-        map.addLayer({
-          id: "line-features-hit",
-          type: "line",
-          source: "line-features",
-          filter: ["==", "$type", "LineString"],
-          paint: { "line-color": "transparent", "line-width": 14, "line-opacity": 0 },
-        })
-      }
-
-      // Re-add line drawing preview
-      if (!map.getSource("line-drawing-preview")) {
-        map.addSource("line-drawing-preview", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        })
-        map.addLayer({
-          id: "line-drawing-preview",
-          type: "line",
-          source: "line-drawing-preview",
-          paint: {
-            "line-color": "#ffffff",
-            "line-width": 2,
-            "line-dasharray": [4, 3],
-          },
-          layout: { "line-cap": "round", "line-join": "round" },
-        })
-      }
-
-      // Re-add measurement overlay
-      if (!map.getSource("measurement-overlay")) {
-        map.addSource("measurement-overlay", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        })
-        map.addLayer({
-          id: "measurement-lines",
-          type: "line",
-          source: "measurement-overlay",
-          filter: ["==", ["get", "type"], "line"],
-          paint: { "line-color": "#fbbf24", "line-width": 2 },
-          layout: { "line-cap": "round" },
-        })
-        map.addLayer({
-          id: "measurement-closing-line",
-          type: "line",
-          source: "measurement-overlay",
-          filter: ["==", ["get", "type"], "closing-line"],
-          paint: { "line-color": "#fbbf24", "line-width": 1.5, "line-dasharray": [4, 3] },
-        })
-        map.addLayer({
-          id: "measurement-points",
-          type: "circle",
-          source: "measurement-overlay",
-          filter: ["==", ["get", "type"], "dot"],
-          paint: { "circle-radius": 5, "circle-color": "#fbbf24", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 },
-        })
-        map.addLayer({
-          id: "measurement-labels",
-          type: "symbol",
-          source: "measurement-overlay",
-          filter: ["in", ["get", "type"], ["literal", ["label", "total", "area-label"]]],
-          layout: {
-            "text-field": ["get", "label"],
-            "text-size": 13,
-            "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
-            "text-allow-overlap": true,
-            "text-offset": [0, -1.2],
-          },
-          paint: { "text-color": "#fbbf24", "text-halo-color": "#000000", "text-halo-width": 1.5 },
-        })
-      }
-
-      // Restore user plot layer
+      restoreLayersAfterStyleChange(map, {
+        kartverketOpacity,
+        kartverketVisible,
+      })
       addUserPlotLayer(map)
 
       // Restore draw features
@@ -2475,7 +1924,7 @@ export function MapView({
               onToolChange("select")
               onPanelModeChange("line")
               onEditingSelectionChange(true)
-              onLineDefaultsChange(ld)
+              onSelectedLineChange(ld)
               pushHistory()
               saveToStorageRef.current?.()
               return
@@ -2596,7 +2045,7 @@ export function MapView({
     removeTextInput,
     onPanelModeChange,
     onEditingSelectionChange,
-    onLineDefaultsChange,
+    onSelectedLineChange,
   ])
 
   // Close context menu on outside click
