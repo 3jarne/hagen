@@ -129,7 +129,11 @@ export function addTextLabelsLayers(map: Map) {
  * Create and add the arrow-head image used by line arrows.
  */
 function ensureArrowHeadImage(map: Map) {
-  if (map.hasImage("arrow-head")) return
+  try {
+    if (map.hasImage("arrow-head")) return
+  } catch {
+    return
+  }
 
   const size = 24
   const canvas = document.createElement("canvas")
@@ -145,11 +149,15 @@ function ensureArrowHeadImage(map: Map) {
   ctx.closePath()
   ctx.fill()
   const imageData = ctx.getImageData(0, 0, size, size)
-  map.addImage(
-    "arrow-head",
-    { width: size, height: size, data: imageData.data as unknown as Uint8Array },
-    { sdf: true }
-  )
+  try {
+    map.addImage(
+      "arrow-head",
+      { width: size, height: size, data: imageData.data as unknown as Uint8Array },
+      { sdf: true }
+    )
+  } catch {
+    // Image may already exist (e.g. React StrictMode double-mount)
+  }
 }
 
 /**
