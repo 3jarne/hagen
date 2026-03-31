@@ -421,13 +421,13 @@ export function MapView({
                 [tl.lng, tl.lat],
               ]],
             },
-            properties: {},
+            properties: { lineId: id },
           })
           for (const corner of [tl, tr, br, bl]) {
             bboxFeatures.push({
               type: "Feature",
               geometry: { type: "Point", coordinates: [corner.lng, corner.lat] },
-              properties: {},
+              properties: { lineId: id },
             })
           }
         }
@@ -582,11 +582,6 @@ export function MapView({
     }
     const wasEditing = editingTextIdRef.current !== null
     editingTextIdRef.current = null
-    // Suppress the next empty-space deselection (blur + click race)
-    justConfirmedTextRef.current = true
-    requestAnimationFrame(() => {
-      justConfirmedTextRef.current = false
-    })
     // Re-show hidden text if editing was cancelled
     if (wasEditing) {
       const map = mapRef.current
@@ -637,7 +632,15 @@ export function MapView({
         if (confirmed) return
         confirmed = true
         const value = input.value.trim()
-        if (value) onConfirm(value)
+        if (value) {
+          onConfirm(value)
+          // Suppress the empty-space click that follows the blur event
+          // (mousedown→blur→confirm runs synchronously, but click fires ~50-150ms later)
+          justConfirmedTextRef.current = true
+          setTimeout(() => {
+            justConfirmedTextRef.current = false
+          }, 300)
+        }
         removeTextInput()
       }
 
@@ -867,6 +870,13 @@ export function MapView({
       map.addSource("line-selection-bbox", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
+      })
+      map.addLayer({
+        id: "line-selection-bbox-fill",
+        type: "fill",
+        source: "line-selection-bbox",
+        filter: ["==", "$type", "Polygon"],
+        paint: { "fill-opacity": 0 },
       })
       map.addLayer({
         id: "line-selection-bbox-outline",
@@ -1252,6 +1262,12 @@ export function MapView({
         }
       }
 
+      // Click inside a selected line's bounding box — preserve selection
+      const bboxFillHits = map.queryRenderedFeatures(e.point, {
+        layers: map.getLayer("line-selection-bbox-fill") ? ["line-selection-bbox-fill"] : [],
+      })
+      if (bboxFillHits.length > 0) return
+
       // Click on empty space — exit edit mode or deselect
       if (lineEditIdRef.current) {
         // Exit line edit mode first (keep selection)
@@ -1275,11 +1291,22 @@ export function MapView({
     // Double-click to enter line edit mode
     map.on("dblclick", (e: mapboxgl.MapMouseEvent) => {
       if (activeToolRef.current !== "select") return
+      let hitId: string | null = null
+      // Check line stroke first
       const lineHits = map.queryRenderedFeatures(e.point, {
         layers: map.getLayer("line-features-hit") ? ["line-features-hit"] : map.getLayer("line-features-stroke") ? ["line-features-stroke"] : [],
       })
-      if (lineHits.length === 0) return
-      const hitId = lineHits[0].properties!.id as string
+      if (lineHits.length > 0) {
+        hitId = lineHits[0].properties!.id as string
+      } else {
+        // Fall back to bounding box fill area
+        const bboxHits = map.queryRenderedFeatures(e.point, {
+          layers: map.getLayer("line-selection-bbox-fill") ? ["line-selection-bbox-fill"] : [],
+        })
+        if (bboxHits.length > 0) {
+          hitId = bboxHits[0].properties!.lineId as string
+        }
+      }
       if (!hitId || !selectedLineIdsRef.current.has(hitId)) return
       e.preventDefault()
       lineEditIdRef.current = hitId
@@ -2172,6 +2199,13 @@ export function MapView({
         map.addSource("line-selection-bbox", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
+        })
+        map.addLayer({
+          id: "line-selection-bbox-fill",
+          type: "fill",
+          source: "line-selection-bbox",
+          filter: ["==", "$type", "Polygon"],
+          paint: { "fill-opacity": 0 },
         })
         map.addLayer({
           id: "line-selection-bbox-outline",
