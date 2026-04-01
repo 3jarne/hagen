@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { TopBar } from "@/components/TopBar"
 import { MapView } from "@/components/MapView"
-import { FloatingToolbar, type Tool } from "@/components/FloatingToolbar"
+import { FloatingToolbar, type Tool, type ToolbarMode } from "@/components/FloatingToolbar"
 import { PropertiesPanel } from "@/components/PropertiesPanel"
 import { SettingsDialog, hasValidToken } from "@/components/SettingsDialog"
 import { CONFIG } from "@/config"
@@ -15,6 +15,7 @@ import {
   type LineProperties,
   type ZoneCategory,
 } from "@/lib/zone-defaults"
+import type { GardenElementType } from "@/lib/garden-types"
 
 export type PanelMode = "shape" | "text" | "line" | "none"
 export type MapStyle = "satellite" | "street" | "terrain"
@@ -23,6 +24,8 @@ function App() {
   const [zoomLevel, setZoomLevel] = useState(CONFIG.defaultZoom)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeTool, setActiveTool] = useState<Tool>("select")
+  const [toolbarMode, setToolbarMode] = useState<ToolbarMode>("garden")
+  const [activeGardenElement, setActiveGardenElement] = useState<GardenElementType | null>(null)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
   const undoRef = useRef<(() => void) | null>(null)
@@ -208,7 +211,14 @@ function App() {
         zoomOutRef={zoomOutRef}
         resetViewRef={resetViewRef}
       />
-      <FloatingToolbar activeTool={activeTool} onToolChange={handleToolChange} />
+      <FloatingToolbar
+        activeTool={activeTool}
+        onToolChange={handleToolChange}
+        toolbarMode={toolbarMode}
+        onToolbarModeChange={setToolbarMode}
+        activeGardenElement={activeGardenElement}
+        onGardenElementChange={setActiveGardenElement}
+      />
       <PropertiesPanel
         visible={showPanel}
         mode={isLineTool ? "line" : isDrawTool ? "shape" : isTextTool ? "text" : panelMode}
