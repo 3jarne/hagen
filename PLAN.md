@@ -1,175 +1,382 @@
-# Hageplan v1 — Implementation Plan
+# Hageplan v2 — Project Brief
 
-## Context
-
-Personal garden planning web app. Users load their property on a live satellite map and draw georeferenced zone shapes. Built with React + Vite + TypeScript + shadcn/ui + Mapbox GL JS.
-
-Deployed to GitHub Pages via GitHub Actions. Settings stored in localStorage (Mapbox token, coordinates, gnr/bnr).
-
-## Architecture
-
-- **Dual-map technique**: Satellite base map + Kartverket color topo overlay with `mix-blend-mode: multiply` (white background becomes transparent, colored lines/details darken the satellite)
-- **Drawing**: mapbox-gl-draw for Polygon/Rectangle/Circle + custom GeoJSON source for Text labels
-- **State**: Tool state and undo/redo managed in App.tsx, passed to MapView and FloatingToolbar
-
-## Phase Status
-
-- [x] Phase 1 — Foundation and layout skeleton
-- [x] Phase 2 — Drawing tools and undo/redo
-- [x] Phase 3 — Text tool and selection behaviour
-- [x] Phase 4 — Properties panel
-- [x] Phase 5 — Persistence and export
-- [x] Phase 6 — View menu and map controls
-- [x] Phase 7 — Polish and accessibility
-
-## Post-v1 Features
-
-### Feature A: Pen/line tool
-
-**New toolbar button** (shortcut: L) for drawing open paths (not closed shapes).
-
-**Auto-detect drawing mode (single tool, two behaviors):**
-1. **Click and release (short click)**: Places an anchor point. Each subsequent click adds a straight segment. Double-click or Enter to finish. Result: a polyline.
-2. **Click and hold + drag**: Immediately starts freehand drawing. The path follows the cursor. Release to finish. Result: a smoothed curve.
-
-The tool auto-detects based on whether the user clicks or click-drags. No mode toggle needed.
-
-**Arrow heads:**
-- When a line/path is selected, the properties panel shows two toggles: "Start arrow" and "End arrow" (each on/off)
-- When enabled, a triangular arrowhead renders at that end of the path
-- Use case: directional annotations like "water flows this way", "walk path from A → B"
-
-**Properties (in properties panel when line is selected):**
-- Stroke color (color picker, same as shapes)
-- Stroke width (slider, same as shapes)
-- Start arrow: on/off toggle
-- End arrow: on/off toggle
-
-### Feature B: Measurement tool
-
-**New toolbar button** (shortcut: M) for measuring distances and areas on the map.
-
-**How it works:**
-1. User activates measurement tool
-2. Click points on the map to measure:
-   - **2 points**: Shows distance between them (meters/km)
-   - **3+ points**: Shows perimeter and enclosed area (m²)
-3. Measurements display as labels near the measured geometry
-4. Click to keep adding points, double-click or Enter to finish
-5. Measurement stays visible until user starts a new measurement or switches tool
-
-**Decisions:**
-- One unified tool — no sub-modes. 2 points = distance, 3+ points = distance + area automatically.
-- Ephemeral — measurements disappear when switching tools or starting a new measurement.
+> Dette dokumentet er den eneste kilden til sannhet for Hageplan v2.
+> Følg det presist. Ikke oppfinn atferd som ikke er beskrevet her.
+> Når noe ikke er spesifisert, spør før du antar.
 
 ---
 
-## Phase 1 — Foundation and Layout Skeleton (COMPLETE)
+## Hva du bygger videre på
 
-**Goal:** Running app in browser with correct layout, map rendering, and Kartverket integration. No interactive functionality yet.
+Hageplan v2 er en iterasjon på v1-kodebasen. Du arver alle eksisterende
+funksjoner og legger til:
 
-**What was built:**
-- Vite + React + TypeScript scaffold with shadcn/ui
-- TopBar with File/Edit/View/Help menus (items disabled)
-- MapView with satellite imagery + Kartverket WMTS overlay (multiply blend)
-- User plot highlight from Kartverket WFS (amber outline)
-- FloatingToolbar with 5 tool buttons (Select/Polygon/Rectangle/Circle/Text)
-- PropertiesPanel placeholder (hidden)
-- SettingsDialog for Mapbox token, coordinates, gnr/bnr
-- GPS geolocation (only when no custom coords set)
-- GitHub Actions deploy workflow
+1. **Bug-fix: globale stilverdier** — fikses som aller første steg
+2. **Hage-modus** — ny primær tegnemodalitet via toolbar-toggle
+3. **Solkompass** — ny funksjon med dato/tid-slider
+
+Rå-modus (eksisterende v1 toolbar) beholdes nøyaktig uendret.
 
 ---
 
-## Phase 2 — Drawing Tools and Undo/Redo
+## localStorage
 
-**Goal:** Can draw Polygon, Rectangle, Circle. Shapes georeferenced and styled. Undo/redo works.
+v2 overskriver v1-data. Bruk samme nøkkel: `hageplan_sketch`.
+Ingen bakoverkompatibilitet er nødvendig.
 
-**Tasks:**
-- mapbox-gl-draw initialized with custom styles (per-feature color via `user_fillColor` etc.)
-- Polygon tool (P) — click points, double-click to close, Escape cancels
-- Rectangle tool (R) — custom draw mode (mapbox-gl-draw-rectangle-mode), Escape cancels
-- Circle tool (C) — custom draw mode (stored as 64-point polygon), Escape cancels
-- On shape completion: assigned zone defaults (Lawn defaults hardcoded for now)
-- Tool switching via toolbar buttons and keyboard shortcuts (V/P/R/C/T)
-- Undo/redo system: history array (50 max), push snapshot on draw events, Cmd+Z/Cmd+Shift+Z
-- Undo/redo buttons in top bar become active/greyed based on history state
-- Edit → Undo/Redo menu items work and reflect state
-- Select tool (V): click to select, click empty to deselect, Escape deselects
+---
+
+## Steg 0 — Rydd og fiks før nye features
+
+### 0a. Bryt opp store filer
+Gjennomgå kodebasen og del opp filer som er blitt for store til å
+vedlikeholde. Finn en mappestruktur som gir mening basert på hva som
+faktisk finnes — du bestemmer strukturen selv.
+
+### 0b. Fix: globale stilverdier
+**Problem:** Farge, opacity og stroke endres kun på valgt element,
+ikke som global standard for neste tegning.
+
+**Ønsket atferd:**
+- Properties panel viser globale standarder når ingenting er valgt
+- Endringer der påvirker *neste* tegning, ikke eksisterende elementer
+- Endringer på et valgt element påvirker bare *det* elementet
+- Disse to skal aldri blandes
+
+---
+
+## Toolbar — ny struktur
+
+Floating toolbar, bunn-senter, alltid synlig.
+
+```
+[ Velg  |  🌿▾  💧▾  🏗▾  |  T  📐  |  ···  ||  Hage  Rå  ]
+```
+
+Høyre side: **Hage / Rå toggle** med visuell skillelinje.
+
+### Hage-modus (standard ved oppstart)
+
+Tre kategoriknapper med emoji + chevron (▾):
+
+| Knapp | Kategori | Elementer |
+|---|---|---|
+| 🌿▾ | Planter | Tre, Busk, Hekk, Bed, Gressplen, Grønnsakhage |
+| 💧▾ | Vann & Sti | Dam, Sti |
+| 🏗▾ | Konstruksjon | Terrasse, Bygning |
+
+**Flyt:**
+- Klikk kategoriknapp → Popover åpnes med elementlisten
+- Velg element → Popover lukkes, knappen bytter til f.eks. `🌳 Tre`
+- Tegn → forblir i samme hage-type til du velger noe annet
+- Escape → avbryter pågående tegning, beholder aktiv hage-type
+- Velg-verktøy (V) → alltid tilgjengelig i begge modi
+
+### Rå-modus
+Identisk med v1 toolbar. Ingen endringer overhodet.
+
+---
+
+## Hage-elementer
+
+Alle elementer er **geografisk korrekte** — størrelser og bredder
+skalerer med kartzoom. Alle former lagres som GeoJSON med `hagenType` property.
+
+### Visuelle standarder som gjelder for alle elementer
+- Fyll: elementets standardfarge, 40% opacity (60% for Terrasse/Bygning)
+- Kant: samme farge som fyll, 85% opacity, solid (aldri stiplet), 2px
+- Emoji: HTML overlay, fast visuell størrelse uavhengig av zoom,
+  sentrert i formen
+- Navn: vises kun på hover via tooltip, hvis satt
+
+### 🌿 Planter
+
+**🌳 Tre**
+- Tegning: klikk-dra setter radius live
+- Standard: 3m diameter
+- Justere etterpå: dra i kanten av sirkelen
+- Properties panel: diameter-slider (0.5m–20m) + fargevelger
+- Standardfarge: mørkegrønn
+- ⚠️ Teknisk risiko: dra-i-kant er ikke innebygd i mapbox-gl-draw.
+  Vurder beste løsning og beskriv valget ditt før du implementerer.
+
+**🌿 Busk**
+- Identisk interaksjon med Tre
+- Standard: 1m diameter
+- Properties panel: diameter-slider (0.3m–5m) + fargevelger
+- Standardfarge: mellomgrønn
+
+**🌿 Hekk**
+- Tegning: klikk for punkter, dobbelklikk avslutter (polyline)
+- Rendres som geografisk korrekt bånd med justerbar bredde
+- Standard bredde: 60cm
+- Properties panel: bredde-slider (20cm–300cm) + fargevelger
+- Emoji fordelt langs linjen
+- Standardfarge: mørkegrønn
+
+**🌸 Bed**
+- Tegning: polygon
+- Standardfarge: varm rosa `#f9a8d4`
+
+**🌱 Gressplen**
+- Tegning: polygon
+- Standardfarge: lys grønn `#86efac`
+
+**🥕 Grønnsakhage**
+- Tegning: polygon
+- Standardfarge: gul-grønn `#a3e635`
+
+### 💧 Vann & Sti
+
+**💧 Dam**
+- Tegning: frihånd eller polygon
+- Standardfarge: blå `#38bdf8`
+
+**🪨 Sti**
+- Tegning: identisk med Hekk (polyline → bånd)
+- Standard bredde: 120cm
+- Properties panel: bredde-slider (30cm–800cm) + fargevelger
+- Standardfarge: grå/beige `#d6d3d1`
+
+### 🏗️ Konstruksjon
+
+**🪵 Terrasse**
+- Tegning: polygon
+- Standardfarge: varm grå `#d6d3d1`
+
+**🏠 Bygning**
+- Tegning: bruker velger mellom Polygon og Rektangel i properties panel.
+  Standard er Rektangel.
+- Standardfarge: nøytral grå `#9ca3af`
+
+---
+
+## Emoji-rendering
+
+Emojier rendres som HTML overlays på toppen av kartet.
+Finn beste tilnærming basert på Mapbox sin API.
+
+Krav:
+- Fast visuell størrelse uavhengig av zoom
+- Sentrert i formen
+- Følger kartet korrekt ved panorering og zoom
+- Hekk/Sti: ett emoji per ca. 5–8m langs linjen
+
+---
+
+## Valgfritt navnefelt etter tegning
+
+Etter at et hage-element er ferdig tegnet:
+1. Navnefelt vises øverst i properties panel
+2. Bruker skriver navn og trykker Enter
+3. Escape hopper over — ingen navn satt
+4. Navn lagres på featuren og vises kun på hover
+
+---
+
+## Properties panel i Hage-modus
+
+Oppfører seg som v1 (slides inn fra høyre, ingen scrim).
+
+**Når hage-type er valgt, ingenting tegnet:**
+- Aktiv type vises øverst (emoji + navn)
+- For Bygning: valg mellom Polygon / Rektangel
+- Fargevelger — endrer globale standarder
+- For Hekk/Sti: bredde-slider
+
+**Når element er valgt:**
+- Navnefelt øverst (redigerbart)
+- Fargevelger for dette elementet
+- For Tre/Busk: diameter-slider i meter
+- For Hekk/Sti: bredde-slider
+- Ingen opacity-slider — opacity er fast per type
+
+**Redigering:** Hage-elementer kan velges og redigeres i begge modi.
+
+---
+
+## Solkompass
+
+**Plassering:** Liten widget, bunn-høyre, alltid synlig.
+
+**Standard-tilstand:**
+- Roterende sol-ikon som peker mot solens posisjon
+- Basert på kartsenter + nåværende klokkeslett
+- Oppdateres hvert minutt og når kartet panoreres
+
+**Klikk på widget:**
+Åpner Popover med:
+- Dato-velger (shadcn Calendar), standard = i dag
+- Tid-slider (0–24t), viser klokkeslett som tekst
+- Soloppgang og solnedgang for valgt dato og posisjon
+- Sol-altitude i grader, eller "Under horisonten"
+
+**Beregning:** Bruk `suncalc`-biblioteket (allerede installert).
+Koordinater følger kartsenter og oppdateres ved panorering.
+
+---
+
+## JSON data-modell
+
+Utvid v1-skjemaet minimalt:
+- `version: 2`
+- `featureType: "garden"` eller `featureType: "raw"` på alle features
+- `hagenType` på hage-features (f.eks. `"tre"`, `"hekk"`)
+- `gardenProps` objekt for type-spesifikke verdier (diameter, bredde)
+
+Design skjemaet for fremtidig utvidbarhet — lag-panel kommer i v3.
+
+---
+
+---
+
+# Faseinndelt byggeplan
+
+Bygg og test én fase om gangen. Ikke start neste fase
+før brukeren bekrefter godkjenning.
+
+---
+
+## Fase 0 — Opprydding og bug-fix ✅
+**Mål:** Ren kodebase. Global stilverdi-bug fikset.
+
+- [x] Del opp store filer etter eget skjønn
+- [x] Fix global stilverdi-bug
+
+---
+
+## Fase 1 — Toolbar-toggle og tom Hage-modus
+**Mål:** Toggle fungerer. Kategoriknapper åpner riktig popover.
+
+- [x] Hage/Rå toggle
+- [x] Tre kategoriknapper med popover og elementliste
+- [x] Valgt element vises i knappen
+- [x] Rå-modus identisk med v1
 
 **Test:**
-- Draw all three shape types
-- Pan and zoom — shapes stay locked to map
-- Undo several steps — shapes disappear in reverse order
-- Redo restores them
-- Switch tools mid-draw with Escape — no partial shapes
-- Undo/redo buttons grey out correctly at boundaries
+- Toggle bytter mellom modi
+- Alle tre popovers åpner/lukker
+- Valgt element vises korrekt i knappen
 
 ---
 
-## Phase 3 — Text Tool and Selection Behaviour
+## Fase 2 — Polygon-baserte elementer
+**Mål:** Bed, Gressplen, Grønnsakhage, Terrasse, Dam fungerer.
 
-**Goal:** Text labels work. Full selection, deletion, duplication, right-click menu.
+- Polygon-tegning med riktig standardstil per type
+- Emoji HTML overlays i sentrum
+- Hover viser navn
+- Navnefelt i properties panel
+- Auto-save med JSON v2-format
 
-**Tasks:**
-- Text tool (T): click map → DOM input, Enter/blur confirms, stored as GeoJSON Point, rendered as Mapbox symbol layer
-- Double-click text label → inline edit reopens
-- Select tool: click text label → selected state
-- Delete/Backspace deletes selected element(s)
-- Shift+click for multi-selection
-- Right-click context menu: Delete, Duplicate
-- Duplicate: offset 20px diagonally in screen space
-- Escape deselects all / cancels draw
-- Text add/edit/delete pushes to undo history
-
----
-
-## Phase 4 — Properties Panel
-
-**Goal:** Full properties panel. Zone colors apply on draw. Live editing of selected elements.
-
-**Tasks:**
-- Panel slides in when drawing tool active or element selected
-- Zone category dropdown (Lawn, Planting bed, Path/hardscape, Vegetable garden, Water feature, Other)
-- react-colorful HexColorPicker for fill/stroke color
-- Sliders for fill opacity and stroke width
-- Text tool panel: font size, color, alignment
-- `currentDefaults` updated on field change
-- Shapes on completion receive current defaults
-- When element selected → panel shows its values, live-editable
-- Multi-select: shared values shown, differing values show placeholder
+**Test:**
+- Tegn ett av hvert — riktig emoji og farge?
+- Zoom inn/ut — geografisk korrekt størrelse?
+- Eksporter JSON — `hagenType` til stede?
 
 ---
 
-## Phase 5 — Persistence and Export
+## Fase 3 — Sirkelelementer (Tre og Busk)
+**Mål:** Tre og Busk med klikk-dra og størrelsesjustering.
 
-**Goal:** Work survives page reload. JSON and PNG export work.
+- Klikk-dra tegner geografisk korrekt sirkel
+- Diameter vises live under tegning
+- Properties panel: diameter-slider
+- Størrelsesjustering etterpå
 
-**Tasks:**
-- Auto-save to localStorage (debounced 500ms)
-- Auto-load on map load event
-- Export JSON: File → Export JSON triggers download
-- Export PNG: File → Export PNG captures map canvas
+**⚠️ Teknisk:** Vurder løsning for dra-i-kant og beskriv valget
+før du implementerer.
 
----
-
-## Phase 6 — View Menu and Map Controls
-
-**Goal:** View menu fully functional. Kartverket overlay toggle and opacity.
-
-**Tasks:**
-- Map style switching (Satellite/Street/Terrain)
-- Kartverket overlay toggle (on/off)
-- Kartverket overlay opacity slider
-- Zoom In/Out from menu
-- Reset to property view
+**Test:**
+- Er 3m faktisk 3m? (sammenlign med scale ruler)
+- Kan størrelse justeres etterpå?
 
 ---
 
-## Phase 7 — Polish and Accessibility (COMPLETE)
+## Fase 4 — Linje-elementer (Hekk og Sti)
+**Mål:** Geografisk korrekte bånd.
 
-**Goal:** Final polish, keyboard accessibility.
+- Polyline-tegning
+- Bånd med geografisk korrekt bredde
+- Bredde-slider i properties panel
+- Emoji langs linjen
 
-**What was built:**
-- Keyboard shortcuts dialog wired to Help → Keyboard shortcuts menu item
-- Lists all shortcuts grouped by category (Tools, Edit, Text)
+**Test:**
+- Er 60cm hekk faktisk 60cm på kartet?
+- Endre bredde — oppdateres båndet live?
+
+---
+
+## Fase 5 — Bygning
+**Mål:** Bygning med valg av tegnemodus.
+
+- Polygon / Rektangel-valg i properties panel
+
+**Test:** Tegn med begge modi. Navnefelt fungerer?
+
+---
+
+## Fase 6 — Solkompass
+**Mål:** Fungerende solkompass.
+
+- Widget bunn-høyre
+- Roterer basert på kartsenter + klokkeslett
+- Popover med dato, tid-slider, soloppgang/solnedgang, altitude
+
+**Test:**
+- Viser riktig retning nå?
+- Panorer til annen by — oppdateres sol-data?
+
+---
+
+## Fase 7 — Sluttpolering
+**Mål:** Ingen løse tråder.
+
+- Alle properties panel-felt fungerer for alle 10 typer
+- Undo/redo inkluderer hage-operasjoner
+- Høyreklikk-meny fungerer på hage-elementer
+- Eksport JSON og PNG inkluderer hage-elementer
+
+**Test:** Full gjennomgang — tegn alle typer, gi navn, endre farge,
+undo/redo, eksporter.
+
+---
+
+---
+
+# Selvevalueringsprotokoll — obligatorisk etter hver fase
+
+### Steg 1 — Spec-sjekk
+Gå gjennom hvert punkt i fasens oppgaveliste:
+- ✅ Gjort
+- ❌ Ikke gjort — fiks umiddelbart
+- ⚠️ Delvis — beskriv og fiks
+
+Ikke gå videre før alt er ✅.
+
+### Steg 2 — Selvtest
+Gå gjennom testkriteriene og resonér gjennom resultatet:
+- ✅ Bestått
+- ❌ Feilet — fiks og sjekk på nytt
+- ⚠️ Kan ikke verifisere uten nettleser — flagg for bruker
+
+### Steg 3 — Overlevering
+
+```
+## Fase [N] ferdig — klar for testing
+
+**Hva ble bygget:**
+[2–4 setninger]
+
+**Slik tester du:**
+[Nummerert liste med konkrete handlinger]
+
+**Kjente begrensninger / pass på:**
+[Alt flagget ⚠️]
+
+Svar med:
+- ✅ Fase [N] godkjent
+- ❌ [beskriv problemet]
+```
+
+Ikke start neste fase før brukeren bekrefter.
