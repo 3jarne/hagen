@@ -16,8 +16,9 @@ import {
   type ZoneCategory,
 } from "@/lib/zone-defaults"
 import type { GardenElementType } from "@/lib/garden-types"
+import { GARDEN_ELEMENTS, gardenDrawModeToTool } from "@/lib/garden-types"
 
-export type PanelMode = "shape" | "text" | "line" | "none"
+export type PanelMode = "shape" | "text" | "line" | "garden" | "none"
 export type MapStyle = "satellite" | "street" | "terrain"
 
 function App() {
@@ -75,6 +76,16 @@ function App() {
   }, [])
 
   const handleToolChange = useCallback((tool: Tool) => {
+    setActiveTool(tool)
+    // Switching to a raw tool clears garden element
+    if (tool === "select") return
+    setActiveGardenElement(null)
+  }, [])
+
+  const handleGardenElementChange = useCallback((type: GardenElementType) => {
+    setActiveGardenElement(type)
+    const el = GARDEN_ELEMENTS[type]
+    const tool = gardenDrawModeToTool(el.drawMode)
     setActiveTool(tool)
   }, [])
 
@@ -153,15 +164,26 @@ function App() {
     [isEditingSelection]
   )
 
-  // Determine panel visibility
+  // Determine panel visibility and mode
   const isDrawTool =
     activeTool === "polygon" ||
     activeTool === "rectangle" ||
     activeTool === "circle"
   const isTextTool = activeTool === "text"
   const isLineTool = activeTool === "line"
+  const isGardenDraw = activeGardenElement !== null && isDrawTool
   const showPanel =
-    isDrawTool || isTextTool || isLineTool || panelMode !== "none"
+    isDrawTool || isTextTool || isLineTool || isGardenDraw || panelMode !== "none"
+
+  const effectivePanelMode: PanelMode = isGardenDraw
+    ? "garden"
+    : isLineTool
+      ? "line"
+      : isDrawTool
+        ? "shape"
+        : isTextTool
+          ? "text"
+          : panelMode
 
   return (
     <div className="h-screen w-screen overflow-hidden relative">
@@ -187,6 +209,7 @@ function App() {
       <MapView
         onZoomChange={handleZoomChange}
         activeTool={activeTool}
+        activeGardenElement={activeGardenElement}
         onToolChange={handleToolChange}
         onUndoRedoChange={handleUndoRedoChange}
         undoRef={undoRef}
@@ -217,14 +240,18 @@ function App() {
         toolbarMode={toolbarMode}
         onToolbarModeChange={setToolbarMode}
         activeGardenElement={activeGardenElement}
-        onGardenElementChange={setActiveGardenElement}
+        onGardenElementChange={handleGardenElementChange}
       />
       <PropertiesPanel
         visible={showPanel}
-        mode={isLineTool ? "line" : isDrawTool ? "shape" : isTextTool ? "text" : panelMode}
+        mode={effectivePanelMode}
         shapeProps={selectedShapeProps ?? shapeDefaults}
         textProps={selectedTextProps ?? textDefaults}
         lineProps={selectedLineProps ?? lineDefaults}
+        activeGardenElement={activeGardenElement}
+        gardenFeatureName={null}
+        onGardenFeatureNameChange={() => {}}
+        onGardenColorChange={() => {}}
         onShapeChange={handleShapeChange}
         onTextChange={handleTextChange}
         onLineChange={handleLineChange}

@@ -4,6 +4,7 @@ import type MapboxDraw from "@mapbox/mapbox-gl-draw"
 export const STORAGE_KEY = "hageplan_sketch"
 
 export interface SavedProject {
+  version: number
   drawFeatures: Feature[]
   textFeatures: Feature[]
   lineFeatures?: Feature[]
@@ -54,6 +55,7 @@ export function saveProject(
   lineFeatures: Feature[]
 ) {
   const project: SavedProject = {
+    version: 2,
     drawFeatures: draw.getAll().features,
     textFeatures: [...textFeatures],
     lineFeatures: [...lineFeatures],

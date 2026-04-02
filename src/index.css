@@ -97,3 +97,19 @@
   caret-color: white;
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
 }
+
+/* Garden name tooltip */
+.garden-name-tooltip .mapboxgl-popup-content {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.garden-name-tooltip .mapboxgl-popup-tip {
+  display: none;
+}

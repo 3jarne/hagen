@@ -17,13 +17,18 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import type { ShapeProperties, TextProperties, LineProperties } from "@/lib/zone-defaults"
 import { ZONE_CATEGORIES } from "@/lib/zone-defaults"
+import { GARDEN_ELEMENTS, type GardenElementType } from "@/lib/garden-types"
 
 interface PropertiesPanelProps {
   visible: boolean
-  mode: "shape" | "text" | "line" | "none"
+  mode: "shape" | "text" | "line" | "garden" | "none"
   shapeProps: ShapeProperties
   textProps: TextProperties
   lineProps: LineProperties
+  activeGardenElement: GardenElementType | null
+  gardenFeatureName: string | null
+  onGardenFeatureNameChange: (name: string) => void
+  onGardenColorChange: (color: string) => void
   onShapeChange: (props: Partial<ShapeProperties>) => void
   onTextChange: (props: Partial<TextProperties>) => void
   onLineChange: (props: Partial<LineProperties>) => void
@@ -60,10 +65,16 @@ export function PropertiesPanel({
   shapeProps,
   textProps,
   lineProps,
+  activeGardenElement,
+  gardenFeatureName,
+  onGardenFeatureNameChange,
+  onGardenColorChange,
   onShapeChange,
   onTextChange,
   onLineChange,
 }: PropertiesPanelProps) {
+  const gardenEl = activeGardenElement ? GARDEN_ELEMENTS[activeGardenElement] : null
+
   return (
     <div
       className={`fixed top-10 right-0 bottom-0 w-[280px] z-40 border-l bg-background transition-transform duration-200 ease-in-out ${
@@ -71,6 +82,51 @@ export function PropertiesPanel({
       }`}
     >
       <div className="p-4 space-y-5 overflow-y-auto h-full">
+        {mode === "garden" && gardenEl && (
+          <>
+            {/* Garden element header */}
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">{gardenEl.emoji}</span>
+              <h3 className="text-sm font-semibold">{gardenEl.label}</h3>
+            </div>
+
+            {/* Name field */}
+            {gardenFeatureName !== null && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Navn</Label>
+                  <input
+                    type="text"
+                    value={gardenFeatureName}
+                    onChange={(e) => onGardenFeatureNameChange(e.target.value)}
+                    placeholder="Gi elementet et navn..."
+                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <Separator />
+              </>
+            )}
+
+            {/* Color picker */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold">Farge</h3>
+              <div className="flex items-center gap-3">
+                <Label className="w-12 text-xs text-muted-foreground">
+                  Fyll
+                </Label>
+                <ColorSwatch
+                  color={gardenEl.style.fillColor}
+                  onChange={onGardenColorChange}
+                  label="Fill color"
+                />
+                <span className="text-xs text-muted-foreground font-mono">
+                  {gardenEl.style.fillColor}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+
         {mode === "shape" && (
           <>
             <div>

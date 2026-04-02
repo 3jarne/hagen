@@ -27,10 +27,12 @@ import {
 } from "@/lib/map-layers"
 import { loadProject, saveProject } from "@/lib/storage"
 import { exportJSON, exportPNG } from "@/lib/export"
+import { GARDEN_ELEMENTS, type GardenElementType } from "@/lib/garden-types"
 
 interface MapViewProps {
   onZoomChange: (zoom: number) => void
   activeTool: Tool
+  activeGardenElement: GardenElementType | null
   onToolChange: (tool: Tool) => void
   onUndoRedoChange: (canUndo: boolean, canRedo: boolean) => void
   undoRef: React.MutableRefObject<(() => void) | null>
@@ -66,6 +68,7 @@ interface ContextMenuState {
 export function MapView({
   onZoomChange,
   activeTool,
+  activeGardenElement,
   onToolChange,
   onUndoRedoChange,
   undoRef,
@@ -100,6 +103,11 @@ export function MapView({
   const shapeDefaultsRef = useRef(shapeDefaults)
   const textDefaultsRef = useRef(textDefaults)
   const lineDefaultsRef = useRef(lineDefaults)
+  const activeGardenElementRef = useRef(activeGardenElement)
+
+  useEffect(() => {
+    activeGardenElementRef.current = activeGardenElement
+  }, [activeGardenElement])
 
   useEffect(() => {
     shapeDefaultsRef.current = shapeDefaults
@@ -110,6 +118,9 @@ export function MapView({
   useEffect(() => {
     lineDefaultsRef.current = lineDefaults
   }, [lineDefaults])
+
+  // Garden emoji markers
+  const emojiMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map())
 
   // Text features state
   const textFeaturesRef = useRef<Feature[]>([])
@@ -328,6 +339,54 @@ export function MapView({
     [buildAreaLabels]
   )
 
+  /** Sync emoji markers for garden features */
+  const syncEmojiMarkers = useCallback((map: mapboxgl.Map, draw: MapboxDraw) => {
+    const features = draw.getAll().features
+    const activeIds = new Set<string>()
+
+    for (const f of features) {
+      const id = f.id as string
+      const props = f.properties || {}
+      if (props.featureType !== "garden" || !props.hagenType) continue
+
+      const el = GARDEN_ELEMENTS[props.hagenType as GardenElementType]
+      if (!el) continue
+
+      activeIds.add(id)
+
+      // Calculate centroid
+      if (f.geometry.type !== "Polygon") continue
+      const ring = (f.geometry as GeoJSON.Polygon).coordinates[0]
+      if (!ring || ring.length < 4) continue
+      const center = centroid(ring)
+
+      const existing = emojiMarkersRef.current.get(id)
+      if (existing) {
+        existing.setLngLat([center[0], center[1]])
+      } else {
+        const markerEl = document.createElement("div")
+        markerEl.className = "garden-emoji-marker"
+        markerEl.textContent = el.emoji
+        markerEl.style.fontSize = "24px"
+        markerEl.style.lineHeight = "1"
+        markerEl.style.pointerEvents = "none"
+        markerEl.style.userSelect = "none"
+        const marker = new mapboxgl.Marker({ element: markerEl, anchor: "center" })
+          .setLngLat([center[0], center[1]])
+          .addTo(map)
+        emojiMarkersRef.current.set(id, marker)
+      }
+    }
+
+    // Remove markers for deleted features
+    for (const [id, marker] of emojiMarkersRef.current) {
+      if (!activeIds.has(id)) {
+        marker.remove()
+        emojiMarkersRef.current.delete(id)
+      }
+    }
+  }, [])
+
   /** Sync line features to map GeoJSON source, including arrow point features */
   const syncLineFeatures = useCallback((map: mapboxgl.Map) => {
     const source = map.getSource("line-features") as mapboxgl.GeoJSONSource
@@ -545,9 +604,10 @@ export function MapView({
       syncTextLabels(map)
       syncLineFeatures(map)
       updateAreaLabels(map, draw)
+      syncEmojiMarkers(map, draw)
       saveToStorage()
     },
-    [updateAreaLabels, syncTextLabels, syncLineFeatures, saveToStorage]
+    [updateAreaLabels, syncTextLabels, syncLineFeatures, syncEmojiMarkers, saveToStorage]
   )
 
   const handleUndo = useCallback(() => {
@@ -736,6 +796,32 @@ export function MapView({
         }
       })
 
+      // Hover tooltip for garden feature names
+      const hoverPopup = new mapboxgl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        className: "garden-name-tooltip",
+        offset: [0, -10],
+      })
+      const drawLayerIds = (map.getStyle().layers || [])
+        .filter((l) => l.id.startsWith("gl-draw-"))
+        .map((l) => l.id)
+
+      map.on("mousemove", (e: mapboxgl.MapMouseEvent) => {
+        if (drawLayerIds.length === 0) return
+        const hits = map.queryRenderedFeatures(e.point, { layers: drawLayerIds })
+        const gardenHit = hits.find((f) => f.properties?.user_gardenName)
+        if (gardenHit) {
+          map.getCanvas().style.cursor = "pointer"
+          hoverPopup
+            .setLngLat(e.lngLat)
+            .setHTML(`<div class="garden-tooltip-text">${gardenHit.properties!.user_gardenName}</div>`)
+            .addTo(map)
+        } else {
+          if (hoverPopup.isOpen()) hoverPopup.remove()
+        }
+      })
+
       // Load saved project from localStorage
       let loaded = false
       const saved = loadProject()
@@ -748,6 +834,7 @@ export function MapView({
         syncTextLabels(map)
         syncLineFeatures(map)
         updateAreaLabels(map, draw)
+        syncEmojiMarkers(map, draw)
         loaded = true
       }
 
@@ -760,22 +847,42 @@ export function MapView({
 
     // Draw events
     map.on("draw.create", (e: { features: GeoJSON.Feature[] }) => {
-      const defaults = shapeDefaultsRef.current
+      const gardenType = activeGardenElementRef.current
       for (const feature of e.features) {
         const id = feature.id as string
         const current = draw.get(id)
         if (!current) continue
-        current.properties = {
-          ...current.properties,
-          fillColor: defaults.fillColor,
-          fillOpacity: defaults.fillOpacity,
-          strokeColor: defaults.strokeColor,
-          strokeWidth: defaults.strokeWidth,
-          zone: defaults.zone,
+
+        if (gardenType) {
+          // Garden element — use garden-specific styles
+          const el = GARDEN_ELEMENTS[gardenType as GardenElementType]
+          current.properties = {
+            ...current.properties,
+            featureType: "garden",
+            hagenType: gardenType,
+            fillColor: el.style.fillColor,
+            fillOpacity: el.style.fillOpacity,
+            strokeColor: el.style.strokeColor,
+            strokeWidth: el.style.strokeWidth,
+            gardenProps: {},
+          }
+        } else {
+          // Raw element — use shape defaults
+          const defaults = shapeDefaultsRef.current
+          current.properties = {
+            ...current.properties,
+            featureType: "raw",
+            fillColor: defaults.fillColor,
+            fillOpacity: defaults.fillOpacity,
+            strokeColor: defaults.strokeColor,
+            strokeWidth: defaults.strokeWidth,
+            zone: defaults.zone,
+          }
         }
         draw.add(current)
       }
       updateAreaLabels(map, draw)
+      syncEmojiMarkers(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -786,6 +893,7 @@ export function MapView({
 
     map.on("draw.update", () => {
       updateAreaLabels(map, draw)
+      syncEmojiMarkers(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -796,6 +904,7 @@ export function MapView({
 
     map.on("draw.delete", () => {
       updateAreaLabels(map, draw)
+      syncEmojiMarkers(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -1506,6 +1615,11 @@ export function MapView({
 
     return () => {
       popup.remove()
+      // Clean up emoji markers
+      for (const marker of emojiMarkersRef.current.values()) {
+        marker.remove()
+      }
+      emojiMarkersRef.current.clear()
       map.removeControl(draw as unknown as mapboxgl.IControl)
       drawRef.current = null
       map.remove()
@@ -1524,6 +1638,7 @@ export function MapView({
     syncTextLabels,
     syncLineFeatures,
     syncMeasurement,
+    syncEmojiMarkers,
     showTextInput,
     onSelectedLineChange,
   ])
@@ -1761,7 +1876,10 @@ export function MapView({
       lineFeaturesRef.current = lineFeatures
       syncTextLabels(map)
       syncLineFeatures(map)
-      if (draw) updateAreaLabels(map, draw)
+      if (draw) {
+        updateAreaLabels(map, draw)
+        syncEmojiMarkers(map, draw)
+      }
 
       // Restore view
       map.setCenter(center)

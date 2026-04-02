@@ -1,3 +1,5 @@
+import type { Tool } from "@/components/FloatingToolbar"
+
 export type GardenCategory = "planter" | "vann_sti" | "konstruksjon"
 
 export type GardenElementType =
@@ -12,11 +14,23 @@ export type GardenElementType =
   | "terrasse"
   | "bygning"
 
+export type GardenDrawMode = "polygon" | "circle" | "polyline" | "rectangle"
+
+export interface GardenElementStyle {
+  fillColor: string
+  fillOpacity: number
+  strokeColor: string
+  strokeOpacity: number
+  strokeWidth: number
+}
+
 export interface GardenElement {
   type: GardenElementType
   emoji: string
   label: string
   category: GardenCategory
+  drawMode: GardenDrawMode
+  style: GardenElementStyle
 }
 
 export interface GardenCategoryDef {
@@ -26,17 +40,40 @@ export interface GardenCategoryDef {
   elements: GardenElement[]
 }
 
+/** Map garden draw modes to the underlying mapbox-gl-draw Tool */
+export function gardenDrawModeToTool(mode: GardenDrawMode): Tool {
+  switch (mode) {
+    case "polygon": return "polygon"
+    case "circle": return "circle"
+    case "rectangle": return "rectangle"
+    case "polyline": return "polygon" // placeholder — polyline handled in Fase 4
+  }
+}
+
+function makeStyle(
+  fillColor: string,
+  fillOpacity = 0.4,
+): GardenElementStyle {
+  return {
+    fillColor,
+    fillOpacity,
+    strokeColor: fillColor,
+    strokeOpacity: 0.85,
+    strokeWidth: 2,
+  }
+}
+
 export const GARDEN_ELEMENTS: Record<GardenElementType, GardenElement> = {
-  tre: { type: "tre", emoji: "🌳", label: "Tre", category: "planter" },
-  busk: { type: "busk", emoji: "🌿", label: "Busk", category: "planter" },
-  hekk: { type: "hekk", emoji: "🌿", label: "Hekk", category: "planter" },
-  bed: { type: "bed", emoji: "🌸", label: "Bed", category: "planter" },
-  gressplen: { type: "gressplen", emoji: "🌱", label: "Gressplen", category: "planter" },
-  groennsakhage: { type: "groennsakhage", emoji: "🥕", label: "Grønnsakhage", category: "planter" },
-  dam: { type: "dam", emoji: "💧", label: "Dam", category: "vann_sti" },
-  sti: { type: "sti", emoji: "🪨", label: "Sti", category: "vann_sti" },
-  terrasse: { type: "terrasse", emoji: "🪵", label: "Terrasse", category: "konstruksjon" },
-  bygning: { type: "bygning", emoji: "🏠", label: "Bygning", category: "konstruksjon" },
+  tre:            { type: "tre",            emoji: "🌳", label: "Tre",           category: "planter",       drawMode: "circle",   style: makeStyle("#166534") },
+  busk:           { type: "busk",           emoji: "🌿", label: "Busk",          category: "planter",       drawMode: "circle",   style: makeStyle("#22c55e") },
+  hekk:           { type: "hekk",           emoji: "🌿", label: "Hekk",          category: "planter",       drawMode: "polyline", style: makeStyle("#166534") },
+  bed:            { type: "bed",            emoji: "🌸", label: "Bed",           category: "planter",       drawMode: "polygon",  style: makeStyle("#f9a8d4") },
+  gressplen:      { type: "gressplen",      emoji: "🌱", label: "Gressplen",     category: "planter",       drawMode: "polygon",  style: makeStyle("#86efac") },
+  groennsakhage:  { type: "groennsakhage",  emoji: "🥕", label: "Grønnsakhage",  category: "planter",       drawMode: "polygon",  style: makeStyle("#a3e635") },
+  dam:            { type: "dam",            emoji: "💧", label: "Dam",           category: "vann_sti",      drawMode: "polygon",  style: makeStyle("#38bdf8") },
+  sti:            { type: "sti",            emoji: "🪨", label: "Sti",           category: "vann_sti",      drawMode: "polyline", style: makeStyle("#d6d3d1") },
+  terrasse:       { type: "terrasse",       emoji: "🪵", label: "Terrasse",      category: "konstruksjon",  drawMode: "polygon",  style: makeStyle("#d6d3d1", 0.6) },
+  bygning:        { type: "bygning",        emoji: "🏠", label: "Bygning",       category: "konstruksjon",  drawMode: "rectangle", style: makeStyle("#9ca3af", 0.6) },
 }
 
 export const GARDEN_CATEGORIES: GardenCategoryDef[] = [
@@ -71,4 +108,9 @@ export const GARDEN_CATEGORIES: GardenCategoryDef[] = [
       GARDEN_ELEMENTS.bygning,
     ],
   },
+]
+
+/** Polygon-based garden elements handled in Fase 2 */
+export const POLYGON_GARDEN_TYPES: GardenElementType[] = [
+  "bed", "gressplen", "groennsakhage", "terrasse", "dam",
 ]
