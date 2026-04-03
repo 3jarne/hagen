@@ -57,6 +57,7 @@ export function addAreaLabelsLayer(map: Map) {
       "text-size": 13,
       "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
       "text-allow-overlap": true,
+      "text-offset": [0, 1.8],
     },
     paint: {
       "text-color": "#ffffff",

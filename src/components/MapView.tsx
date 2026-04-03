@@ -53,6 +53,7 @@ interface MapViewProps {
   mapStyle: MapStyle
   kartverketVisible: boolean
   kartverketOpacity: number
+  areaLabelsVisible: boolean
   zoomInRef: React.MutableRefObject<(() => void) | null>
   zoomOutRef: React.MutableRefObject<(() => void) | null>
   resetViewRef: React.MutableRefObject<(() => void) | null>
@@ -89,6 +90,7 @@ export function MapView({
   mapStyle,
   kartverketVisible,
   kartverketOpacity,
+  areaLabelsVisible,
   zoomInRef,
   zoomOutRef,
   resetViewRef,
@@ -1902,6 +1904,18 @@ export function MapView({
       map.setPaintProperty("kartverket-topo", "raster-opacity", kartverketOpacity)
     }
   }, [kartverketVisible, kartverketOpacity])
+
+  // Area labels visibility
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!map.getLayer("area-labels")) return
+    map.setLayoutProperty(
+      "area-labels",
+      "visibility",
+      areaLabelsVisible ? "visible" : "none"
+    )
+  }, [areaLabelsVisible])
 
   // Context menu actions
   const handleContextDelete = useCallback(() => {

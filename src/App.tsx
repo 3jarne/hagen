@@ -41,6 +41,7 @@ function App() {
   const [mapStyle, setMapStyle] = useState<MapStyle>("satellite")
   const [kartverketVisible, setKartverketVisible] = useState(true)
   const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
+  const [areaLabelsVisible, setAreaLabelsVisible] = useState(true)
 
   // Properties panel state — global defaults (never overwritten by selection)
   const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
@@ -205,6 +206,8 @@ function App() {
         onZoomIn={() => zoomInRef.current?.()}
         onZoomOut={() => zoomOutRef.current?.()}
         onResetView={() => resetViewRef.current?.()}
+        areaLabelsVisible={areaLabelsVisible}
+        onAreaLabelsVisibleChange={setAreaLabelsVisible}
       />
       <MapView
         onZoomChange={handleZoomChange}
@@ -230,6 +233,7 @@ function App() {
         mapStyle={mapStyle}
         kartverketVisible={kartverketVisible}
         kartverketOpacity={kartverketOpacity}
+        areaLabelsVisible={areaLabelsVisible}
         zoomInRef={zoomInRef}
         zoomOutRef={zoomOutRef}
         resetViewRef={resetViewRef}

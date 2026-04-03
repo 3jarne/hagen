@@ -35,6 +35,8 @@ interface TopBarProps {
   onZoomIn: () => void
   onZoomOut: () => void
   onResetView: () => void
+  areaLabelsVisible: boolean
+  onAreaLabelsVisibleChange: (visible: boolean) => void
 }
 
 export function TopBar({
@@ -55,6 +57,8 @@ export function TopBar({
   onZoomIn,
   onZoomOut,
   onResetView,
+  areaLabelsVisible,
+  onAreaLabelsVisibleChange,
 }: TopBarProps) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   return (
@@ -119,6 +123,12 @@ export function TopBar({
                 />
               </div>
             )}
+            <MenubarCheckboxItem
+              checked={areaLabelsVisible}
+              onCheckedChange={onAreaLabelsVisibleChange}
+            >
+              Vis areal (m²)
+            </MenubarCheckboxItem>
             <MenubarSeparator />
             <MenubarItem onClick={onZoomIn}>
               Zoom In <MenubarShortcut>+</MenubarShortcut>
