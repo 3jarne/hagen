@@ -64,6 +64,10 @@ function App() {
   const [panelMode, setPanelMode] = useState<PanelMode>("none")
   // Track whether we're showing defaults or editing a selection
   const [isEditingSelection, setIsEditingSelection] = useState(false)
+  // Selected garden feature state
+  const [selectedGardenType, setSelectedGardenType] = useState<GardenElementType | null>(null)
+  const [selectedGardenName, setSelectedGardenName] = useState<string | null>(null)
+  const [selectedGardenDiameter, setSelectedGardenDiameter] = useState<number | null>(null)
 
   // Auto-open settings on first visit if no token
   useEffect(() => {
@@ -117,6 +121,9 @@ function App() {
       setSelectedShapeProps(null)
       setSelectedTextProps(null)
       setSelectedLineProps(null)
+      setSelectedGardenType(null)
+      setSelectedGardenName(null)
+      setSelectedGardenDiameter(null)
     }
   }, [])
 
@@ -176,7 +183,8 @@ function App() {
   const showPanel =
     isDrawTool || isTextTool || isLineTool || isGardenDraw || panelMode !== "none"
 
-  const effectivePanelMode: PanelMode = isGardenDraw
+  const isGardenSelected = isEditingSelection && selectedGardenType !== null
+  const effectivePanelMode: PanelMode = isGardenDraw || isGardenSelected
     ? "garden"
     : isLineTool
       ? "line"
@@ -228,11 +236,17 @@ function App() {
         onSelectedLineChange={setSelectedLineProps}
         onPanelModeChange={setPanelMode}
         onEditingSelectionChange={handleEditingSelectionChange}
+        onSelectedGardenChange={(type, name, diameter) => {
+          setSelectedGardenType(type)
+          setSelectedGardenName(name)
+          setSelectedGardenDiameter(diameter)
+        }}
         exportJSONRef={exportJSONRef}
         exportPNGRef={exportPNGRef}
         mapStyle={mapStyle}
         kartverketVisible={kartverketVisible}
         kartverketOpacity={kartverketOpacity}
+        selectedGardenDiameter={selectedGardenDiameter}
         areaLabelsVisible={areaLabelsVisible}
         zoomInRef={zoomInRef}
         zoomOutRef={zoomOutRef}
@@ -252,10 +266,12 @@ function App() {
         shapeProps={selectedShapeProps ?? shapeDefaults}
         textProps={selectedTextProps ?? textDefaults}
         lineProps={selectedLineProps ?? lineDefaults}
-        activeGardenElement={activeGardenElement}
-        gardenFeatureName={null}
-        onGardenFeatureNameChange={() => {}}
+        activeGardenElement={isGardenSelected ? selectedGardenType : activeGardenElement}
+        gardenFeatureName={selectedGardenName}
+        gardenDiameter={selectedGardenDiameter}
+        onGardenFeatureNameChange={setSelectedGardenName}
         onGardenColorChange={() => {}}
+        onGardenDiameterChange={setSelectedGardenDiameter}
         onShapeChange={handleShapeChange}
         onTextChange={handleTextChange}
         onLineChange={handleLineChange}

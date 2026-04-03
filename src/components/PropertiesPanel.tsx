@@ -27,8 +27,10 @@ interface PropertiesPanelProps {
   lineProps: LineProperties
   activeGardenElement: GardenElementType | null
   gardenFeatureName: string | null
+  gardenDiameter: number | null
   onGardenFeatureNameChange: (name: string) => void
   onGardenColorChange: (color: string) => void
+  onGardenDiameterChange: (diameter: number) => void
   onShapeChange: (props: Partial<ShapeProperties>) => void
   onTextChange: (props: Partial<TextProperties>) => void
   onLineChange: (props: Partial<LineProperties>) => void
@@ -67,8 +69,10 @@ export function PropertiesPanel({
   lineProps,
   activeGardenElement,
   gardenFeatureName,
+  gardenDiameter,
   onGardenFeatureNameChange,
   onGardenColorChange,
+  onGardenDiameterChange,
   onShapeChange,
   onTextChange,
   onLineChange,
@@ -101,6 +105,30 @@ export function PropertiesPanel({
                     onChange={(e) => onGardenFeatureNameChange(e.target.value)}
                     placeholder="Gi elementet et navn..."
                     className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <Separator />
+              </>
+            )}
+
+            {/* Diameter slider for circle elements (tre, busk) */}
+            {gardenDiameter !== null && gardenEl.drawMode === "circle" && (
+              <>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">
+                      Diameter
+                    </Label>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {gardenDiameter.toFixed(1)} m
+                    </span>
+                  </div>
+                  <Slider
+                    value={[gardenDiameter]}
+                    min={gardenEl.type === "busk" ? 0.3 : 0.5}
+                    max={gardenEl.type === "busk" ? 5 : 20}
+                    step={0.1}
+                    onValueChange={([v]) => onGardenDiameterChange(v)}
                   />
                 </div>
                 <Separator />

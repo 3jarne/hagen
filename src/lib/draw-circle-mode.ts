@@ -3,7 +3,7 @@ import { distanceMeters, formatDistance, formatArea } from "@/lib/measurement"
 
 const CIRCLE_STEPS = 64
 
-function createCirclePolygon(
+export function createCirclePolygon(
   center: Position,
   radiusInKm: number
 ): Position[] {

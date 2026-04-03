@@ -6,7 +6,7 @@ import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css"
 import { CONFIG } from "@/config"
 import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 import { drawStyles } from "@/lib/draw-styles"
-import DrawCircleMode from "@/lib/draw-circle-mode"
+import DrawCircleMode, { createCirclePolygon } from "@/lib/draw-circle-mode"
 import DrawRectangleMode from "@/lib/draw-rectangle-mode"
 import DrawPolygonMode from "@/lib/draw-polygon-mode"
 import { UndoRedoHistory, type Snapshot } from "@/lib/history"
@@ -48,11 +48,13 @@ interface MapViewProps {
   onSelectedLineChange: (props: LineProperties | null) => void
   onPanelModeChange: (mode: PanelMode) => void
   onEditingSelectionChange: (editing: boolean) => void
+  onSelectedGardenChange: (type: GardenElementType | null, name: string | null, diameter: number | null) => void
   exportJSONRef: React.MutableRefObject<(() => void) | null>
   exportPNGRef: React.MutableRefObject<(() => void) | null>
   mapStyle: MapStyle
   kartverketVisible: boolean
   kartverketOpacity: number
+  selectedGardenDiameter: number | null
   areaLabelsVisible: boolean
   zoomInRef: React.MutableRefObject<(() => void) | null>
   zoomOutRef: React.MutableRefObject<(() => void) | null>
@@ -85,11 +87,13 @@ export function MapView({
   onSelectedLineChange,
   onPanelModeChange,
   onEditingSelectionChange,
+  onSelectedGardenChange,
   exportJSONRef,
   exportPNGRef,
   mapStyle,
   kartverketVisible,
   kartverketOpacity,
+  selectedGardenDiameter,
   areaLabelsVisible,
   zoomInRef,
   zoomOutRef,
@@ -858,6 +862,19 @@ export function MapView({
         if (gardenType) {
           // Garden element — use garden-specific styles
           const el = GARDEN_ELEMENTS[gardenType as GardenElementType]
+          const gProps: Record<string, unknown> = {}
+
+          // Calculate diameter for circle elements (tre, busk)
+          if (el.drawMode === "circle" && current.geometry.type === "Polygon") {
+            const ring = (current.geometry as GeoJSON.Polygon).coordinates[0]
+            if (ring && ring.length > 2) {
+              const center = centroid(ring)
+              const edgePt = ring[0]
+              const radiusM = distanceMeters(center, edgePt)
+              gProps.diameter = Math.round(radiusM * 2 * 10) / 10 // round to 0.1m
+            }
+          }
+
           current.properties = {
             ...current.properties,
             featureType: "garden",
@@ -866,7 +883,7 @@ export function MapView({
             fillOpacity: el.style.fillOpacity,
             strokeColor: el.style.strokeColor,
             strokeWidth: el.style.strokeWidth,
-            gardenProps: {},
+            gardenProps: gProps,
           }
         } else {
           // Raw element — use shape defaults
@@ -936,15 +953,32 @@ export function MapView({
       if (e.features.length > 0) {
         const f = e.features[0]
         const props = f.properties || {}
-        onPanelModeChange("shape")
-        onEditingSelectionChange(true)
-        onSelectedShapeChange({
-          fillColor: props.fillColor || "#4ade80",
-          fillOpacity: props.fillOpacity ?? 0.4,
-          strokeColor: props.strokeColor || "#4ade80",
-          strokeWidth: props.strokeWidth ?? 2,
-          zone: props.zone || "Lawn",
-        })
+
+        if (props.featureType === "garden" && props.hagenType) {
+          // Garden feature selected
+          const gProps = typeof props.gardenProps === "string"
+            ? JSON.parse(props.gardenProps)
+            : (props.gardenProps || {})
+          onPanelModeChange("garden")
+          onEditingSelectionChange(true)
+          onSelectedGardenChange(
+            props.hagenType as GardenElementType,
+            props.gardenName || null,
+            gProps.diameter ?? null,
+          )
+        } else {
+          // Raw feature selected
+          onPanelModeChange("shape")
+          onEditingSelectionChange(true)
+          onSelectedShapeChange({
+            fillColor: props.fillColor || "#4ade80",
+            fillOpacity: props.fillOpacity ?? 0.4,
+            strokeColor: props.strokeColor || "#4ade80",
+            strokeWidth: props.strokeWidth ?? 2,
+            zone: props.zone || "Lawn",
+          })
+          onSelectedGardenChange(null, null, null)
+        }
       } else if (
         activeToolRef.current === "select"
       ) {
@@ -1643,6 +1677,7 @@ export function MapView({
     syncEmojiMarkers,
     showTextInput,
     onSelectedLineChange,
+    onSelectedGardenChange,
   ])
 
   // Sync active tool to draw mode + manage dragPan
@@ -1805,6 +1840,44 @@ export function MapView({
     syncLineFeatures(map)
     saveToStorage()
   }, [selectedLineProps, syncLineFeatures, saveToStorage])
+
+  // Live-resize garden circle when diameter changes
+  useEffect(() => {
+    if (selectedGardenDiameter === null) return
+    const draw = drawRef.current
+    const map = mapRef.current
+    if (!draw || !map) return
+    const selectedIds = draw.getSelectedIds()
+    if (selectedIds.length === 0) return
+
+    for (const id of selectedIds) {
+      const feature = draw.get(id)
+      if (!feature || feature.geometry.type !== "Polygon") continue
+      const props = feature.properties || {}
+      if (props.featureType !== "garden") continue
+      const el = GARDEN_ELEMENTS[props.hagenType as GardenElementType]
+      if (!el || el.drawMode !== "circle") continue
+
+      const ring = (feature.geometry as GeoJSON.Polygon).coordinates[0]
+      if (!ring || ring.length < 3) continue
+      const center = centroid(ring)
+      const radiusKm = selectedGardenDiameter / 2 / 1000
+      const newCoords = createCirclePolygon(center, radiusKm)
+      feature.geometry = { type: "Polygon", coordinates: [newCoords] }
+
+      // Update gardenProps
+      const gProps = typeof props.gardenProps === "string"
+        ? JSON.parse(props.gardenProps)
+        : { ...(props.gardenProps || {}) }
+      gProps.diameter = selectedGardenDiameter
+      feature.properties = { ...props, gardenProps: gProps }
+
+      draw.add(feature)
+    }
+    updateAreaLabels(map, draw)
+    syncEmojiMarkers(map, draw)
+    saveToStorage()
+  }, [selectedGardenDiameter, updateAreaLabels, syncEmojiMarkers, saveToStorage])
 
   // Export functions
   const handleExportJSON = useCallback(() => {
