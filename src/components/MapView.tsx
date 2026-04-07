@@ -1714,6 +1714,19 @@ export function MapView({
       if (measSource) measSource.setData({ type: "FeatureCollection", features: [] })
     }
 
+    // Build initial properties for draw modes (garden element colors)
+    const gardenEl = activeGardenElementRef.current
+      ? GARDEN_ELEMENTS[activeGardenElementRef.current as GardenElementType]
+      : null
+    const drawOpts = gardenEl
+      ? { initialProperties: {
+          fillColor: gardenEl.style.fillColor,
+          fillOpacity: gardenEl.style.fillOpacity,
+          strokeColor: gardenEl.style.strokeColor,
+          strokeWidth: gardenEl.style.strokeWidth,
+        }}
+      : {}
+
     // Suppress mode sync to prevent feedback loop
     suppressModeSync.current = true
     switch (activeTool) {
@@ -1725,17 +1738,20 @@ export function MapView({
         map.dragPan.enable()
         break
       case "polygon":
-        draw.changeMode("draw_polygon")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        draw.changeMode("draw_polygon" as any, drawOpts)
         map.getCanvas().style.cursor = "crosshair"
         map.dragPan.disable()
         break
       case "rectangle":
-        draw.changeMode("draw_rectangle")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        draw.changeMode("draw_rectangle" as any, drawOpts)
         map.getCanvas().style.cursor = "crosshair"
         map.dragPan.disable()
         break
       case "circle":
-        draw.changeMode("draw_circle")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        draw.changeMode("draw_circle" as any, drawOpts)
         map.getCanvas().style.cursor = "crosshair"
         map.dragPan.disable()
         break

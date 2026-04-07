@@ -5,10 +5,11 @@ import { distanceMeters, centroid, formatDistance, formatArea } from "@/lib/meas
 type Ctx = any
 
 const DrawRectangleMode = {
-  onSetup(this: Ctx) {
+  onSetup(this: Ctx, opts: Ctx) {
+    const initProps = opts?.initialProperties || {}
     const rectangle = this.newFeature({
       type: "Feature",
-      properties: {},
+      properties: { ...initProps },
       geometry: { type: "Polygon", coordinates: [[]] },
     } as Feature<Polygon>)
     this.addFeature(rectangle)

@@ -26,10 +26,11 @@ export function createCirclePolygon(
 type Ctx = any
 
 const DrawCircleMode = {
-  onSetup(this: Ctx) {
+  onSetup(this: Ctx, opts: Ctx) {
+    const initProps = opts?.initialProperties || {}
     const polygon = this.newFeature({
       type: "Feature",
-      properties: { isCircle: true },
+      properties: { isCircle: true, ...initProps },
       geometry: { type: "Polygon", coordinates: [[]] },
     } as Feature<Polygon>)
     this.addFeature(polygon)

@@ -29,6 +29,18 @@ function isNearFirstVertex(
 const DrawPolygonMode = {
   ...basePolygon,
 
+  onSetup(this: Ctx, opts: Ctx) {
+    const state = basePolygon.onSetup.call(this, opts)
+    // Apply initial properties (e.g. garden element colors) to the feature
+    if (opts?.initialProperties) {
+      const props = opts.initialProperties
+      for (const key of Object.keys(props)) {
+        state.polygon.setProperty(key, props[key])
+      }
+    }
+    return state
+  },
+
   onMouseMove(this: Ctx, state: Ctx, e: Ctx) {
     basePolygon.onMouseMove.call(this, state, e)
 
