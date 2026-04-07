@@ -5,13 +5,20 @@ const CIRCLE_STEPS = 64
 
 export function createCirclePolygon(
   center: Position,
-  radiusInKm: number
+  radiusInKm: number,
+  opts?: { jagged?: boolean }
 ): Position[] {
   const coords: Position[] = []
   for (let i = 0; i < CIRCLE_STEPS; i++) {
     const angle = (i / CIRCLE_STEPS) * 2 * Math.PI
-    const dx = radiusInKm * Math.cos(angle)
-    const dy = radiusInKm * Math.sin(angle)
+    // Deterministic jag: varies radius by ±8% based on vertex angle
+    let r = radiusInKm
+    if (opts?.jagged) {
+      const jag = Math.sin(angle * 7) * 0.04 + Math.sin(angle * 13) * 0.03 + Math.sin(angle * 23) * 0.02
+      r = radiusInKm * (1 + jag)
+    }
+    const dx = r * Math.cos(angle)
+    const dy = r * Math.sin(angle)
     const lat = center[1] + (dy / 6371) * (180 / Math.PI)
     const lng =
       center[0] +
@@ -20,6 +27,44 @@ export function createCirclePolygon(
   }
   coords.push(coords[0])
   return coords
+}
+
+/**
+ * Generate canopy radiating lines from center to edge for a tree/bush circle.
+ * Returns an array of LineString coordinate arrays.
+ */
+export function generateCanopyLines(
+  center: Position,
+  radiusInKm: number,
+  featureId: string,
+  lineCount = 8,
+): Position[][] {
+  const lines: Position[][] = []
+  // Seed from feature ID for consistency
+  let seed = 0
+  for (let i = 0; i < featureId.length; i++) {
+    seed = ((seed << 5) - seed + featureId.charCodeAt(i)) | 0
+  }
+  const pseudoRandom = (i: number) => {
+    const x = Math.sin(seed + i * 9301 + 49297) * 0.5 + 0.5
+    return x - Math.floor(x)
+  }
+
+  for (let i = 0; i < lineCount; i++) {
+    const angle = pseudoRandom(i) * 2 * Math.PI
+    // Line from ~20% of radius to ~85% of radius
+    const r1 = radiusInKm * 0.15
+    const r2 = radiusInKm * (0.7 + pseudoRandom(i + 100) * 0.2)
+    const point = (r: number): Position => {
+      const dx = r * Math.cos(angle)
+      const dy = r * Math.sin(angle)
+      const lat = center[1] + (dy / 6371) * (180 / Math.PI)
+      const lng = center[0] + ((dx / 6371) * (180 / Math.PI)) / Math.cos((center[1] * Math.PI) / 180)
+      return [lng, lat]
+    }
+    lines.push([point(r1), point(r2)])
+  }
+  return lines
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,9 +87,12 @@ const DrawCircleMode = {
       uncombineFeatures: false,
     })
 
+    const isGarden = !!initProps.hagenType
+
     return {
       polygon,
       center: null as Position | null,
+      isGarden,
     }
   },
 
@@ -58,7 +106,7 @@ const DrawCircleMode = {
     const radiusM = distanceMeters(state.center, cursor)
     const radiusKm = radiusM / 1000
     if (radiusKm > 0) {
-      const coords = createCirclePolygon(state.center, radiusKm)
+      const coords = createCirclePolygon(state.center, radiusKm, { jagged: state.isGarden })
       state.polygon.incomingCoords([coords])
     }
     this.map.fire("draw.measurement", {

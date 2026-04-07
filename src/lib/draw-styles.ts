@@ -12,6 +12,25 @@ export const drawStyles: object[] = [
       "fill-opacity": ["coalesce", ["get", "user_fillOpacity"], 0.4],
     },
   },
+  // Garden pattern overlay (monochrome texture on top of solid fill)
+  {
+    id: "gl-draw-polygon-pattern",
+    type: "fill",
+    filter: ["all", ["==", "$type", "Polygon"], ["has", "user_hagenType"], ["!=", "mode", "static"]],
+    paint: {
+      "fill-pattern": [
+        "match", ["get", "user_hagenType"],
+        "bed", "garden-pattern-bed",
+        "gressplen", "garden-pattern-gressplen",
+        "groennsakhage", "garden-pattern-groennsakhage",
+        "dam", "garden-pattern-dam",
+        "terrasse", "garden-pattern-terrasse",
+        "bygning", "garden-pattern-bygning",
+        "" // fallback — no pattern
+      ],
+      "fill-opacity": 0.3,
+    },
+  },
   // Polygon stroke (active)
   {
     id: "gl-draw-polygon-stroke-active",

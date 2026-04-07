@@ -6,7 +6,7 @@ import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css"
 import { CONFIG } from "@/config"
 import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 import { drawStyles } from "@/lib/draw-styles"
-import DrawCircleMode, { createCirclePolygon } from "@/lib/draw-circle-mode"
+import DrawCircleMode, { createCirclePolygon, generateCanopyLines } from "@/lib/draw-circle-mode"
 import DrawRectangleMode from "@/lib/draw-rectangle-mode"
 import DrawPolygonMode from "@/lib/draw-polygon-mode"
 import { UndoRedoHistory, type Snapshot } from "@/lib/history"
@@ -24,10 +24,12 @@ import {
   addLineFeatureLayers,
   addMeasurementLayers,
   restoreLayersAfterStyleChange,
+  addCanopyLinesLayer,
 } from "@/lib/map-layers"
 import { loadProject, saveProject } from "@/lib/storage"
 import { exportJSON, exportPNG } from "@/lib/export"
 import { GARDEN_ELEMENTS, type GardenElementType } from "@/lib/garden-types"
+import { registerGardenPatterns } from "@/lib/garden-patterns"
 
 interface MapViewProps {
   onZoomChange: (zoom: number) => void
@@ -124,9 +126,6 @@ export function MapView({
   useEffect(() => {
     lineDefaultsRef.current = lineDefaults
   }, [lineDefaults])
-
-  // Garden emoji markers
-  const emojiMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map())
 
   // Text features state
   const textFeaturesRef = useRef<Feature[]>([])
@@ -345,10 +344,13 @@ export function MapView({
     [buildAreaLabels]
   )
 
-  /** Sync emoji markers for garden features */
-  const syncEmojiMarkers = useCallback((map: mapboxgl.Map, draw: MapboxDraw) => {
+  /** Sync garden overlays: canopy radiating lines for Tre/Busk */
+  const syncGardenOverlays = useCallback((map: mapboxgl.Map, draw: MapboxDraw) => {
+    const source = map.getSource("garden-canopy-lines") as mapboxgl.GeoJSONSource
+    if (!source) return
+
     const features = draw.getAll().features
-    const activeIds = new Set<string>()
+    const lineFeatures: GeoJSON.Feature[] = []
 
     for (const f of features) {
       const id = f.id as string
@@ -356,41 +358,26 @@ export function MapView({
       if (props.featureType !== "garden" || !props.hagenType) continue
 
       const el = GARDEN_ELEMENTS[props.hagenType as GardenElementType]
-      if (!el) continue
+      if (!el || el.drawMode !== "circle") continue
 
-      activeIds.add(id)
-
-      // Calculate centroid
       if (f.geometry.type !== "Polygon") continue
       const ring = (f.geometry as GeoJSON.Polygon).coordinates[0]
       if (!ring || ring.length < 4) continue
       const center = centroid(ring)
+      const edgePt = ring[0]
+      const radiusKm = distanceMeters(center, edgePt) / 1000
 
-      const existing = emojiMarkersRef.current.get(id)
-      if (existing) {
-        existing.setLngLat([center[0], center[1]])
-      } else {
-        const markerEl = document.createElement("div")
-        markerEl.className = "garden-emoji-marker"
-        markerEl.textContent = el.emoji
-        markerEl.style.fontSize = "14px"
-        markerEl.style.lineHeight = "1"
-        markerEl.style.pointerEvents = "none"
-        markerEl.style.userSelect = "none"
-        const marker = new mapboxgl.Marker({ element: markerEl, anchor: "center" })
-          .setLngLat([center[0], center[1]])
-          .addTo(map)
-        emojiMarkersRef.current.set(id, marker)
+      const lines = generateCanopyLines(center, radiusKm, id)
+      for (const coords of lines) {
+        lineFeatures.push({
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: coords },
+          properties: { fillColor: props.fillColor || el.style.fillColor },
+        })
       }
     }
 
-    // Remove markers for deleted features
-    for (const [id, marker] of emojiMarkersRef.current) {
-      if (!activeIds.has(id)) {
-        marker.remove()
-        emojiMarkersRef.current.delete(id)
-      }
-    }
+    source.setData({ type: "FeatureCollection", features: lineFeatures })
   }, [])
 
   /** Sync line features to map GeoJSON source, including arrow point features */
@@ -610,10 +597,10 @@ export function MapView({
       syncTextLabels(map)
       syncLineFeatures(map)
       updateAreaLabels(map, draw)
-      syncEmojiMarkers(map, draw)
+      syncGardenOverlays(map, draw)
       saveToStorage()
     },
-    [updateAreaLabels, syncTextLabels, syncLineFeatures, syncEmojiMarkers, saveToStorage]
+    [updateAreaLabels, syncTextLabels, syncLineFeatures, syncGardenOverlays, saveToStorage]
   )
 
   const handleUndo = useCallback(() => {
@@ -784,6 +771,9 @@ export function MapView({
     onZoomChange(CONFIG.defaultZoom)
 
     map.on("load", () => {
+      // Register garden fill patterns (before layers reference them)
+      registerGardenPatterns(map)
+
       // Add all custom layers
       addKartverketLayer(map)
       addUserPlotLayer(map)
@@ -791,6 +781,7 @@ export function MapView({
       addTextLabelsLayers(map)
       addLineFeatureLayers(map)
       addMeasurementLayers(map)
+      addCanopyLinesLayer(map)
 
       // Recalculate text and line bbox on map move/zoom
       map.on("move", () => {
@@ -840,7 +831,7 @@ export function MapView({
         syncTextLabels(map)
         syncLineFeatures(map)
         updateAreaLabels(map, draw)
-        syncEmojiMarkers(map, draw)
+        syncGardenOverlays(map, draw)
         loaded = true
       }
 
@@ -901,7 +892,7 @@ export function MapView({
         draw.add(current)
       }
       updateAreaLabels(map, draw)
-      syncEmojiMarkers(map, draw)
+      syncGardenOverlays(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -912,7 +903,7 @@ export function MapView({
 
     map.on("draw.update", () => {
       updateAreaLabels(map, draw)
-      syncEmojiMarkers(map, draw)
+      syncGardenOverlays(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -923,7 +914,7 @@ export function MapView({
 
     map.on("draw.delete", () => {
       updateAreaLabels(map, draw)
-      syncEmojiMarkers(map, draw)
+      syncGardenOverlays(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -1651,11 +1642,6 @@ export function MapView({
 
     return () => {
       popup.remove()
-      // Clean up emoji markers
-      for (const marker of emojiMarkersRef.current.values()) {
-        marker.remove()
-      }
-      emojiMarkersRef.current.clear()
       map.removeControl(draw as unknown as mapboxgl.IControl)
       drawRef.current = null
       map.remove()
@@ -1674,7 +1660,7 @@ export function MapView({
     syncTextLabels,
     syncLineFeatures,
     syncMeasurement,
-    syncEmojiMarkers,
+    syncGardenOverlays,
     showTextInput,
     onSelectedLineChange,
     onSelectedGardenChange,
@@ -1724,6 +1710,7 @@ export function MapView({
           fillOpacity: gardenEl.style.fillOpacity,
           strokeColor: gardenEl.style.strokeColor,
           strokeWidth: gardenEl.style.strokeWidth,
+          hagenType: gardenEl.type,
         }}
       : {}
 
@@ -1878,7 +1865,7 @@ export function MapView({
       if (!ring || ring.length < 3) continue
       const center = centroid(ring)
       const radiusKm = selectedGardenDiameter / 2 / 1000
-      const newCoords = createCirclePolygon(center, radiusKm)
+      const newCoords = createCirclePolygon(center, radiusKm, { jagged: true })
       feature.geometry = { type: "Polygon", coordinates: [newCoords] }
 
       // Update gardenProps
@@ -1891,9 +1878,9 @@ export function MapView({
       draw.add(feature)
     }
     updateAreaLabels(map, draw)
-    syncEmojiMarkers(map, draw)
+    syncGardenOverlays(map, draw)
     saveToStorage()
-  }, [selectedGardenDiameter, updateAreaLabels, syncEmojiMarkers, saveToStorage])
+  }, [selectedGardenDiameter, updateAreaLabels, syncGardenOverlays, saveToStorage])
 
   // Export functions
   const handleExportJSON = useCallback(() => {
@@ -1969,7 +1956,7 @@ export function MapView({
       syncLineFeatures(map)
       if (draw) {
         updateAreaLabels(map, draw)
-        syncEmojiMarkers(map, draw)
+        syncGardenOverlays(map, draw)
       }
 
       // Restore view

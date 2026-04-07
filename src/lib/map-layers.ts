@@ -1,4 +1,5 @@
 import type { Map } from "mapbox-gl"
+import { registerGardenPatterns } from "@/lib/garden-patterns"
 
 /**
  * Add Kartverket topographic overlay below draw layers.
@@ -358,6 +359,31 @@ export function addMeasurementLayers(map: Map) {
 }
 
 /**
+ * Add garden canopy lines source + layer (radiating lines for Tre/Busk).
+ */
+export function addCanopyLinesLayer(map: Map) {
+  if (map.getSource("garden-canopy-lines")) return
+
+  map.addSource("garden-canopy-lines", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  })
+  map.addLayer({
+    id: "garden-canopy-lines",
+    type: "line",
+    source: "garden-canopy-lines",
+    paint: {
+      "line-color": ["coalesce", ["get", "fillColor"], "#166534"],
+      "line-width": 1,
+      "line-opacity": 0.6,
+    },
+    layout: {
+      "line-cap": "round",
+    },
+  })
+}
+
+/**
  * Re-add all custom layers after a map style change.
  * Call this inside map.once("style.load", ...).
  */
@@ -365,6 +391,7 @@ export function restoreLayersAfterStyleChange(
   map: Map,
   opts?: { kartverketOpacity?: number; kartverketVisible?: boolean }
 ) {
+  registerGardenPatterns(map)
   addKartverketLayer(map, {
     opacity: opts?.kartverketOpacity,
     visible: opts?.kartverketVisible,
@@ -373,4 +400,5 @@ export function restoreLayersAfterStyleChange(
   addTextLabelsLayers(map)
   addLineFeatureLayers(map)
   addMeasurementLayers(map)
+  addCanopyLinesLayer(map)
 }
