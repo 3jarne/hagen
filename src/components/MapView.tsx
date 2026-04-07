@@ -142,6 +142,9 @@ export function MapView({
   const draggingScaleRef = useRef<{
     featureId: string
     center: Position
+    initialDistance: number
+    isCircle: boolean
+    initialCoords: Position[]
   } | null>(null)
   const draggingLineRef = useRef<{
     id: string
@@ -385,67 +388,75 @@ export function MapView({
     source.setData({ type: "FeatureCollection", features: lineFeatures })
   }, [])
 
-  /** Sync scale handles for selected garden circle features (Tre/Busk) */
+  /** Sync bounding box + corner handles for selected draw features */
   const syncScaleHandles = useCallback((map: mapboxgl.Map, draw: MapboxDraw) => {
-    const source = map.getSource("garden-scale-handles") as mapboxgl.GeoJSONSource
-    if (!source) return
+    const handleSource = map.getSource("garden-scale-handles") as mapboxgl.GeoJSONSource
+    if (!handleSource) return
 
-    const handles: GeoJSON.Feature[] = []
+    const allFeatures: GeoJSON.Feature[] = []
     const selectedIds = draw.getSelectedIds()
     const mode = draw.getMode()
 
-    // Only show handles in simple_select, not direct_select
+    // Only show in simple_select with exactly 1 feature selected
     if (mode !== "simple_select" || selectedIds.length !== 1) {
-      source.setData({ type: "FeatureCollection", features: [] })
+      handleSource.setData({ type: "FeatureCollection", features: [] })
       return
     }
 
     const feature = draw.get(selectedIds[0])
     if (!feature || feature.geometry.type !== "Polygon") {
-      source.setData({ type: "FeatureCollection", features: [] })
-      return
-    }
-    const props = feature.properties || {}
-    if (props.featureType !== "garden" || !props.hagenType) {
-      source.setData({ type: "FeatureCollection", features: [] })
-      return
-    }
-    const el = GARDEN_ELEMENTS[props.hagenType as GardenElementType]
-    if (!el || el.drawMode !== "circle") {
-      source.setData({ type: "FeatureCollection", features: [] })
+      handleSource.setData({ type: "FeatureCollection", features: [] })
       return
     }
 
-    // Compute clean radius (without jag) from gardenProps
+    // Compute bounding box in screen space, then back to lngLat
     const ring = (feature.geometry as GeoJSON.Polygon).coordinates[0]
     if (!ring || ring.length < 4) {
-      source.setData({ type: "FeatureCollection", features: [] })
+      handleSource.setData({ type: "FeatureCollection", features: [] })
       return
     }
-    const center = centroid(ring)
-    const edgePt = ring[0]
-    const radiusKm = distanceMeters(center, edgePt) / 1000
 
-    // 4 handles at N, E, S, W
-    const directions = [
-      { angle: Math.PI / 2, dir: "N" },   // North
-      { angle: 0, dir: "E" },              // East
-      { angle: -Math.PI / 2, dir: "S" },   // South
-      { angle: Math.PI, dir: "W" },        // West
-    ]
-    for (const { angle, dir } of directions) {
-      const dx = radiusKm * Math.cos(angle)
-      const dy = radiusKm * Math.sin(angle)
-      const lat = center[1] + (dy / 6371) * (180 / Math.PI)
-      const lng = center[0] + ((dx / 6371) * (180 / Math.PI)) / Math.cos((center[1] * Math.PI) / 180)
-      handles.push({
+    const padding = 10
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const c of ring) {
+      const pt = map.project([c[0], c[1]])
+      if (pt.x < minX) minX = pt.x
+      if (pt.y < minY) minY = pt.y
+      if (pt.x > maxX) maxX = pt.x
+      if (pt.y > maxY) maxY = pt.y
+    }
+    minX -= padding; minY -= padding
+    maxX += padding; maxY += padding
+
+    const tl = map.unproject([minX, minY])
+    const tr = map.unproject([maxX, minY])
+    const br = map.unproject([maxX, maxY])
+    const bl = map.unproject([minX, maxY])
+
+    // Bounding box rectangle
+    allFeatures.push({
+      type: "Feature",
+      geometry: {
+        type: "Polygon",
+        coordinates: [[
+          [tl.lng, tl.lat], [tr.lng, tr.lat],
+          [br.lng, br.lat], [bl.lng, bl.lat],
+          [tl.lng, tl.lat],
+        ]],
+      },
+      properties: { type: "bbox" },
+    })
+
+    // 4 corner handles
+    for (const corner of [tl, tr, br, bl]) {
+      allFeatures.push({
         type: "Feature",
-        geometry: { type: "Point", coordinates: [lng, lat] },
-        properties: { featureId: selectedIds[0], direction: dir },
+        geometry: { type: "Point", coordinates: [corner.lng, corner.lat] },
+        properties: { type: "handle", featureId: selectedIds[0] },
       })
     }
 
-    source.setData({ type: "FeatureCollection", features: handles })
+    handleSource.setData({ type: "FeatureCollection", features: allFeatures })
   }, [])
 
   /** Sync line features to map GeoJSON source, including arrow point features */
@@ -859,6 +870,10 @@ export function MapView({
         }
         if (selectedLineIdsRef.current.size > 0) {
           syncLineFeatures(map)
+        }
+        // Update draw feature bounding box (screen-space)
+        if (draw.getSelectedIds().length > 0) {
+          syncScaleHandles(map, draw)
         }
       })
 
@@ -1690,7 +1705,7 @@ export function MapView({
     // Close context menu on map interaction
     map.on("movestart", () => setContextMenu(null))
 
-    // Scale handle dragging for garden circles
+    // Scale handle dragging — works for all selected draw features
     map.on("mousedown", (e: mapboxgl.MapMouseEvent) => {
       if (activeToolRef.current !== "select") return
       const handleHits = map.queryRenderedFeatures(e.point, {
@@ -1706,10 +1721,22 @@ export function MapView({
       const ring = (feature.geometry as GeoJSON.Polygon).coordinates[0]
       if (!ring || ring.length < 4) return
 
+      const center = centroid(ring)
+      const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
+      const initialDistance = distanceMeters(center, cursor)
+      if (initialDistance <= 0) return
+
+      const props = feature.properties || {}
+      const el = props.hagenType ? GARDEN_ELEMENTS[props.hagenType as GardenElementType] : null
+      const isCircle = !!(el && el.drawMode === "circle")
+
       e.preventDefault()
       draggingScaleRef.current = {
         featureId,
-        center: centroid(ring),
+        center,
+        initialDistance,
+        isCircle,
+        initialCoords: ring.map(c => [...c]),
       }
       map.getCanvas().style.cursor = "nwse-resize"
       map.dragPan.disable()
@@ -1717,36 +1744,53 @@ export function MapView({
 
     map.on("mousemove", (e: mapboxgl.MapMouseEvent) => {
       if (!draggingScaleRef.current) return
-      const { featureId, center } = draggingScaleRef.current
-      const cursor: [number, number] = [e.lngLat.lng, e.lngLat.lat]
-      const newRadiusM = distanceMeters(center, cursor)
-      const newRadiusKm = newRadiusM / 1000
-      if (newRadiusKm <= 0) return
+      const { featureId, center, initialDistance, isCircle, initialCoords } = draggingScaleRef.current
+      const cursor: Position = [e.lngLat.lng, e.lngLat.lat]
+      const currentDistance = distanceMeters(center, cursor)
+      if (currentDistance <= 0) return
+      const scale = currentDistance / initialDistance
 
       const feature = draw.get(featureId)
       if (!feature) return
-      const newCoords = createCirclePolygon(center, newRadiusKm, { jagged: true })
-      feature.geometry = { type: "Polygon", coordinates: [newCoords] }
-
-      // Update gardenProps diameter
       const props = feature.properties || {}
-      const gProps = typeof props.gardenProps === "string"
-        ? JSON.parse(props.gardenProps)
-        : { ...(props.gardenProps || {}) }
-      const diameterM = Math.round(newRadiusM * 2 * 10) / 10
-      gProps.diameter = diameterM
-      feature.properties = { ...props, gardenProps: gProps }
+
+      if (isCircle) {
+        // Regenerate circle at new radius
+        const newRadiusKm = (currentDistance) / 1000
+        const newCoords = createCirclePolygon(center, newRadiusKm, { jagged: true })
+        feature.geometry = { type: "Polygon", coordinates: [newCoords] }
+
+        // Update gardenProps diameter
+        const gProps = typeof props.gardenProps === "string"
+          ? JSON.parse(props.gardenProps)
+          : { ...(props.gardenProps || {}) }
+        gProps.diameter = Math.round(currentDistance * 2 * 10) / 10
+        feature.properties = { ...props, gardenProps: gProps }
+
+        // Update panel
+        onSelectedGardenChange(
+          props.hagenType as GardenElementType,
+          props.gardenName || null,
+          gProps.diameter,
+        )
+      } else {
+        // Scale polygon uniformly around center
+        const mLat = 111320
+        const mLng = 111320 * Math.cos((center[1] * Math.PI) / 180)
+        const newCoords = initialCoords.map(c => {
+          const dx = (c[0] - center[0]) * mLng
+          const dy = (c[1] - center[1]) * mLat
+          return [
+            center[0] + (dx * scale) / mLng,
+            center[1] + (dy * scale) / mLat,
+          ]
+        })
+        feature.geometry = { type: "Polygon", coordinates: [newCoords] }
+      }
 
       draw.add(feature)
       syncGardenOverlays(map, draw)
       syncScaleHandles(map, draw)
-
-      // Update panel diameter
-      onSelectedGardenChange(
-        props.hagenType as GardenElementType,
-        props.gardenName || null,
-        diameterM,
-      )
     })
 
     map.on("mouseup", () => {

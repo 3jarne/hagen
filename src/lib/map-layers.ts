@@ -384,7 +384,7 @@ export function addCanopyLinesLayer(map: Map) {
 }
 
 /**
- * Add garden scale handles source + layers (4 drag handles for Tre/Busk resize).
+ * Add selection bounding box + corner handle layers for draw features.
  */
 export function addScaleHandlesLayer(map: Map) {
   if (map.getSource("garden-scale-handles")) return
@@ -393,10 +393,24 @@ export function addScaleHandlesLayer(map: Map) {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
   })
+  // Bounding box outline
+  map.addLayer({
+    id: "garden-scale-bbox",
+    type: "line",
+    source: "garden-scale-handles",
+    filter: ["==", "$type", "Polygon"],
+    paint: {
+      "line-color": "#93c5fd",
+      "line-width": 1,
+      "line-dasharray": [4, 3],
+    },
+  })
+  // Corner handles
   map.addLayer({
     id: "garden-scale-handles",
     type: "circle",
     source: "garden-scale-handles",
+    filter: ["==", "$type", "Point"],
     paint: {
       "circle-radius": 5,
       "circle-color": "#ffffff",
