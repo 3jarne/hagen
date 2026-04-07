@@ -416,7 +416,6 @@ export function MapView({
       return
     }
 
-    const padding = 10
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
     for (const c of ring) {
       const pt = map.project([c[0], c[1]])
@@ -425,8 +424,6 @@ export function MapView({
       if (pt.x > maxX) maxX = pt.x
       if (pt.y > maxY) maxY = pt.y
     }
-    minX -= padding; minY -= padding
-    maxX += padding; maxY += padding
 
     const tl = map.unproject([minX, minY])
     const tr = map.unproject([maxX, minY])
