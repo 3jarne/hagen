@@ -14,18 +14,24 @@ function makeCanvas(size = PATTERN_SIZE): [HTMLCanvasElement, CanvasRenderingCon
 }
 
 /**
- * Scattered small dots (flower bed).
+ * Colorful flower dots (flower bed).
  */
 function createBedPattern(): ImageData {
   const [canvas, ctx] = makeCanvas()
-  ctx.fillStyle = "rgba(0,0,0,0.35)"
-  // Deterministic scattered dots
-  const positions = [
-    [5, 7], [18, 4], [28, 12], [8, 22], [22, 26], [14, 15], [26, 20], [3, 30],
+  const flowers = [
+    { x: 5, y: 7, color: "#e879a0" },   // pink
+    { x: 18, y: 4, color: "#c084fc" },   // purple
+    { x: 28, y: 12, color: "#fbbf24" },  // yellow
+    { x: 8, y: 22, color: "#ffffff" },    // white
+    { x: 22, y: 26, color: "#e879a0" },  // pink
+    { x: 14, y: 15, color: "#fbbf24" },  // yellow
+    { x: 26, y: 20, color: "#c084fc" },  // purple
+    { x: 3, y: 30, color: "#fb7185" },   // rose
   ]
-  for (const [x, y] of positions) {
+  for (const { x, y, color } of flowers) {
+    ctx.fillStyle = color
     ctx.beginPath()
-    ctx.arc(x, y, 1.5, 0, Math.PI * 2)
+    ctx.arc(x, y, 2, 0, Math.PI * 2)
     ctx.fill()
   }
   return ctx.getImageData(0, 0, canvas.width, canvas.height)

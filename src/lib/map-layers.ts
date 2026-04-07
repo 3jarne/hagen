@@ -384,6 +384,29 @@ export function addCanopyLinesLayer(map: Map) {
 }
 
 /**
+ * Add garden scale handles source + layers (4 drag handles for Tre/Busk resize).
+ */
+export function addScaleHandlesLayer(map: Map) {
+  if (map.getSource("garden-scale-handles")) return
+
+  map.addSource("garden-scale-handles", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  })
+  map.addLayer({
+    id: "garden-scale-handles",
+    type: "circle",
+    source: "garden-scale-handles",
+    paint: {
+      "circle-radius": 5,
+      "circle-color": "#ffffff",
+      "circle-stroke-color": "#93c5fd",
+      "circle-stroke-width": 2,
+    },
+  })
+}
+
+/**
  * Re-add all custom layers after a map style change.
  * Call this inside map.once("style.load", ...).
  */
@@ -401,4 +424,5 @@ export function restoreLayersAfterStyleChange(
   addLineFeatureLayers(map)
   addMeasurementLayers(map)
   addCanopyLinesLayer(map)
+  addScaleHandlesLayer(map)
 }

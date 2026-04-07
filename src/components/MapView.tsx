@@ -25,6 +25,7 @@ import {
   addMeasurementLayers,
   restoreLayersAfterStyleChange,
   addCanopyLinesLayer,
+  addScaleHandlesLayer,
 } from "@/lib/map-layers"
 import { loadProject, saveProject } from "@/lib/storage"
 import { exportJSON, exportPNG } from "@/lib/export"
@@ -137,6 +138,10 @@ export function MapView({
   const draggingTextRef = useRef<{
     id: string
     startLngLat: { lng: number; lat: number }
+  } | null>(null)
+  const draggingScaleRef = useRef<{
+    featureId: string
+    center: Position
   } | null>(null)
   const draggingLineRef = useRef<{
     id: string
@@ -378,6 +383,69 @@ export function MapView({
     }
 
     source.setData({ type: "FeatureCollection", features: lineFeatures })
+  }, [])
+
+  /** Sync scale handles for selected garden circle features (Tre/Busk) */
+  const syncScaleHandles = useCallback((map: mapboxgl.Map, draw: MapboxDraw) => {
+    const source = map.getSource("garden-scale-handles") as mapboxgl.GeoJSONSource
+    if (!source) return
+
+    const handles: GeoJSON.Feature[] = []
+    const selectedIds = draw.getSelectedIds()
+    const mode = draw.getMode()
+
+    // Only show handles in simple_select, not direct_select
+    if (mode !== "simple_select" || selectedIds.length !== 1) {
+      source.setData({ type: "FeatureCollection", features: [] })
+      return
+    }
+
+    const feature = draw.get(selectedIds[0])
+    if (!feature || feature.geometry.type !== "Polygon") {
+      source.setData({ type: "FeatureCollection", features: [] })
+      return
+    }
+    const props = feature.properties || {}
+    if (props.featureType !== "garden" || !props.hagenType) {
+      source.setData({ type: "FeatureCollection", features: [] })
+      return
+    }
+    const el = GARDEN_ELEMENTS[props.hagenType as GardenElementType]
+    if (!el || el.drawMode !== "circle") {
+      source.setData({ type: "FeatureCollection", features: [] })
+      return
+    }
+
+    // Compute clean radius (without jag) from gardenProps
+    const ring = (feature.geometry as GeoJSON.Polygon).coordinates[0]
+    if (!ring || ring.length < 4) {
+      source.setData({ type: "FeatureCollection", features: [] })
+      return
+    }
+    const center = centroid(ring)
+    const edgePt = ring[0]
+    const radiusKm = distanceMeters(center, edgePt) / 1000
+
+    // 4 handles at N, E, S, W
+    const directions = [
+      { angle: Math.PI / 2, dir: "N" },   // North
+      { angle: 0, dir: "E" },              // East
+      { angle: -Math.PI / 2, dir: "S" },   // South
+      { angle: Math.PI, dir: "W" },        // West
+    ]
+    for (const { angle, dir } of directions) {
+      const dx = radiusKm * Math.cos(angle)
+      const dy = radiusKm * Math.sin(angle)
+      const lat = center[1] + (dy / 6371) * (180 / Math.PI)
+      const lng = center[0] + ((dx / 6371) * (180 / Math.PI)) / Math.cos((center[1] * Math.PI) / 180)
+      handles.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [lng, lat] },
+        properties: { featureId: selectedIds[0], direction: dir },
+      })
+    }
+
+    source.setData({ type: "FeatureCollection", features: handles })
   }, [])
 
   /** Sync line features to map GeoJSON source, including arrow point features */
@@ -782,6 +850,7 @@ export function MapView({
       addLineFeatureLayers(map)
       addMeasurementLayers(map)
       addCanopyLinesLayer(map)
+      addScaleHandlesLayer(map)
 
       // Recalculate text and line bbox on map move/zoom
       map.on("move", () => {
@@ -979,6 +1048,7 @@ export function MapView({
           onEditingSelectionChange(false)
         }
       }
+      syncScaleHandles(map, draw)
     })
 
     // Measurement events from draw modes
@@ -1620,6 +1690,81 @@ export function MapView({
     // Close context menu on map interaction
     map.on("movestart", () => setContextMenu(null))
 
+    // Scale handle dragging for garden circles
+    map.on("mousedown", (e: mapboxgl.MapMouseEvent) => {
+      if (activeToolRef.current !== "select") return
+      const handleHits = map.queryRenderedFeatures(e.point, {
+        layers: map.getLayer("garden-scale-handles") ? ["garden-scale-handles"] : [],
+      })
+      if (handleHits.length === 0) return
+
+      const featureId = handleHits[0].properties?.featureId as string
+      if (!featureId) return
+
+      const feature = draw.get(featureId)
+      if (!feature || feature.geometry.type !== "Polygon") return
+      const ring = (feature.geometry as GeoJSON.Polygon).coordinates[0]
+      if (!ring || ring.length < 4) return
+
+      e.preventDefault()
+      draggingScaleRef.current = {
+        featureId,
+        center: centroid(ring),
+      }
+      map.getCanvas().style.cursor = "nwse-resize"
+      map.dragPan.disable()
+    })
+
+    map.on("mousemove", (e: mapboxgl.MapMouseEvent) => {
+      if (!draggingScaleRef.current) return
+      const { featureId, center } = draggingScaleRef.current
+      const cursor: [number, number] = [e.lngLat.lng, e.lngLat.lat]
+      const newRadiusM = distanceMeters(center, cursor)
+      const newRadiusKm = newRadiusM / 1000
+      if (newRadiusKm <= 0) return
+
+      const feature = draw.get(featureId)
+      if (!feature) return
+      const newCoords = createCirclePolygon(center, newRadiusKm, { jagged: true })
+      feature.geometry = { type: "Polygon", coordinates: [newCoords] }
+
+      // Update gardenProps diameter
+      const props = feature.properties || {}
+      const gProps = typeof props.gardenProps === "string"
+        ? JSON.parse(props.gardenProps)
+        : { ...(props.gardenProps || {}) }
+      const diameterM = Math.round(newRadiusM * 2 * 10) / 10
+      gProps.diameter = diameterM
+      feature.properties = { ...props, gardenProps: gProps }
+
+      draw.add(feature)
+      syncGardenOverlays(map, draw)
+      syncScaleHandles(map, draw)
+
+      // Update panel diameter
+      onSelectedGardenChange(
+        props.hagenType as GardenElementType,
+        props.gardenName || null,
+        diameterM,
+      )
+    })
+
+    map.on("mouseup", () => {
+      if (!draggingScaleRef.current) return
+      draggingScaleRef.current = null
+      map.getCanvas().style.cursor = ""
+      if (activeToolRef.current === "select") {
+        map.dragPan.enable()
+      }
+      updateAreaLabels(map, draw)
+      history.push({
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
+      })
+      saveToStorageRef.current?.()
+    })
+
     // GPS geolocation
     const settings = loadSettings()
     const hasCustomCoords =
@@ -1661,6 +1806,7 @@ export function MapView({
     syncLineFeatures,
     syncMeasurement,
     syncGardenOverlays,
+    syncScaleHandles,
     showTextInput,
     onSelectedLineChange,
     onSelectedGardenChange,
@@ -1879,8 +2025,9 @@ export function MapView({
     }
     updateAreaLabels(map, draw)
     syncGardenOverlays(map, draw)
+    syncScaleHandles(map, draw)
     saveToStorage()
-  }, [selectedGardenDiameter, updateAreaLabels, syncGardenOverlays, saveToStorage])
+  }, [selectedGardenDiameter, updateAreaLabels, syncGardenOverlays, syncScaleHandles, saveToStorage])
 
   // Export functions
   const handleExportJSON = useCallback(() => {

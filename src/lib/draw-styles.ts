@@ -28,7 +28,7 @@ export const drawStyles: object[] = [
         "bygning", "garden-pattern-bygning",
         "" // fallback — no pattern
       ],
-      "fill-opacity": 0.3,
+      "fill-opacity": 0.5,
     },
   },
   // Polygon stroke (active)
@@ -38,7 +38,8 @@ export const drawStyles: object[] = [
     filter: ["all", ["==", "$type", "Polygon"], ["!=", "mode", "static"]],
     paint: {
       "line-color": ["coalesce", ["get", "user_strokeColor"], "#93c5fd"],
-      "line-width": ["coalesce", ["get", "user_strokeWidth"], 2],
+      "line-width": ["coalesce", ["get", "user_strokeWidth"], 1],
+      "line-opacity": 0.5,
     },
   },
   // Polygon fill (static/locked)
@@ -58,7 +59,8 @@ export const drawStyles: object[] = [
     filter: ["all", ["==", "$type", "Polygon"], ["==", "mode", "static"]],
     paint: {
       "line-color": ["coalesce", ["get", "user_strokeColor"], "#93c5fd"],
-      "line-width": ["coalesce", ["get", "user_strokeWidth"], 2],
+      "line-width": ["coalesce", ["get", "user_strokeWidth"], 1],
+      "line-opacity": 0.5,
     },
   },
   // Line (active, for mid-draw)
