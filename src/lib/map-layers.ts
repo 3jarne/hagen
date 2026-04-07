@@ -17,9 +17,9 @@ export function addKartverketLayer(
       tiles: [
         "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
       ],
-      tileSize: 256,
+      tileSize: 512,
       minzoom: 14,
-      maxzoom: 18,
+      maxzoom: 20,
     })
   }
 
