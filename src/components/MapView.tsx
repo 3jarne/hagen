@@ -373,7 +373,7 @@ export function MapView({
         const markerEl = document.createElement("div")
         markerEl.className = "garden-emoji-marker"
         markerEl.textContent = el.emoji
-        markerEl.style.fontSize = "24px"
+        markerEl.style.fontSize = "14px"
         markerEl.style.lineHeight = "1"
         markerEl.style.pointerEvents = "none"
         markerEl.style.userSelect = "none"
