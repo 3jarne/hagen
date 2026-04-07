@@ -91,7 +91,7 @@ export const drawStyles: object[] = [
       "circle-stroke-width": 2,
     },
   },
-  // Vertex points (only in direct_select / drawing modes, not simple_select)
+  // Vertex points (hidden in simple_select, visible in direct_select + drawing modes)
   {
     id: "gl-draw-point",
     type: "circle",
@@ -100,7 +100,7 @@ export const drawStyles: object[] = [
       ["==", "$type", "Point"],
       ["==", "meta", "vertex"],
       ["!=", "close_indicator", "true"],
-      ["==", "active", "true"],
+      ["!=", "mode", "simple_select"],
     ],
     paint: {
       "circle-radius": 5,
@@ -109,11 +109,11 @@ export const drawStyles: object[] = [
       "circle-stroke-width": 2,
     },
   },
-  // Midpoints (only in direct_select)
+  // Midpoints (hidden in simple_select)
   {
     id: "gl-draw-point-mid",
     type: "circle",
-    filter: ["all", ["==", "$type", "Point"], ["==", "meta", "midpoint"], ["==", "active", "true"]],
+    filter: ["all", ["==", "$type", "Point"], ["==", "meta", "midpoint"], ["!=", "mode", "simple_select"]],
     paint: {
       "circle-radius": 3,
       "circle-color": "#93c5fd",

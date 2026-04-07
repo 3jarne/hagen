@@ -874,6 +874,15 @@ export function MapView({
         }
       })
 
+      // Live-update bounding box + canopy lines during feature drag
+      map.on("mousemove", () => {
+        if (draggingScaleRef.current) return // handled by scale drag
+        if (draw.getSelectedIds().length > 0 && draw.getMode() === "simple_select") {
+          syncScaleHandles(map, draw)
+          syncGardenOverlays(map, draw)
+        }
+      })
+
       // Hover tooltip for garden feature names
       const hoverPopup = new mapboxgl.Popup({
         closeButton: false,
