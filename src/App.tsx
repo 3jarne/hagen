@@ -115,6 +115,15 @@ function App() {
     exportPNGRef.current?.()
   }, [])
 
+  const handleSelectedGardenChange = useCallback(
+    (type: GardenElementType | null, name: string | null, diameter: number | null) => {
+      setSelectedGardenType(type)
+      setSelectedGardenName(name)
+      setSelectedGardenDiameter(diameter)
+    },
+    []
+  )
+
   const handleEditingSelectionChange = useCallback((editing: boolean) => {
     setIsEditingSelection(editing)
     if (!editing) {
@@ -236,11 +245,7 @@ function App() {
         onSelectedLineChange={setSelectedLineProps}
         onPanelModeChange={setPanelMode}
         onEditingSelectionChange={handleEditingSelectionChange}
-        onSelectedGardenChange={(type, name, diameter) => {
-          setSelectedGardenType(type)
-          setSelectedGardenName(name)
-          setSelectedGardenDiameter(diameter)
-        }}
+        onSelectedGardenChange={handleSelectedGardenChange}
         exportJSONRef={exportJSONRef}
         exportPNGRef={exportPNGRef}
         mapStyle={mapStyle}
