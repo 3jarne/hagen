@@ -674,6 +674,7 @@ export function MapView({
       syncLineFeatures(map)
       updateAreaLabels(map, draw)
       syncGardenOverlays(map, draw)
+      syncScaleHandles(map, draw)
       saveToStorage()
     },
     [updateAreaLabels, syncTextLabels, syncLineFeatures, syncGardenOverlays, saveToStorage]
@@ -1005,6 +1006,7 @@ export function MapView({
     map.on("draw.delete", () => {
       updateAreaLabels(map, draw)
       syncGardenOverlays(map, draw)
+      syncScaleHandles(map, draw)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
