@@ -138,6 +138,47 @@ function createBygningPattern(): ImageData {
 }
 
 /**
+ * Dense hedge foliage dots.
+ */
+function createHekkPattern(): ImageData {
+  const [canvas, ctx] = makeCanvas()
+  ctx.fillStyle = "rgba(0,0,0,0.45)"
+  // Tight cluster of small dots for dense foliage
+  const positions = [
+    [3, 3], [10, 5], [17, 2], [24, 6], [30, 4],
+    [6, 10], [14, 12], [20, 9], [27, 13],
+    [2, 17], [9, 18], [16, 16], [23, 19], [29, 17],
+    [5, 24], [12, 25], [19, 23], [26, 26],
+    [3, 30], [11, 29], [18, 31], [25, 30],
+  ]
+  for (const [x, y] of positions) {
+    ctx.beginPath()
+    ctx.arc(x, y, 1.2, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  return ctx.getImageData(0, 0, canvas.width, canvas.height)
+}
+
+/**
+ * Gravel stipple — sparse small dots.
+ */
+function createStiPattern(): ImageData {
+  const [canvas, ctx] = makeCanvas()
+  ctx.fillStyle = "rgba(0,0,0,0.4)"
+  const positions = [
+    [4, 6], [15, 3], [25, 9], [9, 14], [20, 17],
+    [28, 22], [5, 21], [13, 26], [22, 28], [30, 29],
+    [2, 12], [18, 10], [11, 20], [24, 14],
+  ]
+  for (const [x, y] of positions) {
+    ctx.beginPath()
+    ctx.arc(x, y, 1, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  return ctx.getImageData(0, 0, canvas.width, canvas.height)
+}
+
+/**
  * Register all garden fill pattern images on the map.
  * Safe to call multiple times (skips already-registered images).
  */
@@ -149,6 +190,8 @@ export function registerGardenPatterns(map: Map) {
     ["garden-pattern-dam", createDamPattern],
     ["garden-pattern-terrasse", createTerrassePattern],
     ["garden-pattern-bygning", createBygningPattern],
+    ["garden-pattern-hekk", createHekkPattern],
+    ["garden-pattern-sti", createStiPattern],
   ]
 
   for (const [name, create] of patterns) {

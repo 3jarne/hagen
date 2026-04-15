@@ -26,6 +26,8 @@ export const drawStyles: object[] = [
         "dam", "garden-pattern-dam",
         "terrasse", "garden-pattern-terrasse",
         "bygning", "garden-pattern-bygning",
+        "hekk", "garden-pattern-hekk",
+        "sti", "garden-pattern-sti",
         "" // fallback — no pattern
       ],
       "fill-opacity": 0.5,

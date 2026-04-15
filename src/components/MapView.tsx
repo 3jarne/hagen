@@ -7,6 +7,7 @@ import { CONFIG } from "@/config"
 import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 import { drawStyles } from "@/lib/draw-styles"
 import DrawCircleMode, { createCirclePolygon, generateCanopyLines } from "@/lib/draw-circle-mode"
+import { bufferPolyline, polylineLengthMeters } from "@/lib/polyline-buffer"
 import DrawRectangleMode from "@/lib/draw-rectangle-mode"
 import DrawPolygonMode from "@/lib/draw-polygon-mode"
 import { UndoRedoHistory, type Snapshot } from "@/lib/history"
@@ -51,13 +52,14 @@ interface MapViewProps {
   onSelectedLineChange: (props: LineProperties | null) => void
   onPanelModeChange: (mode: PanelMode) => void
   onEditingSelectionChange: (editing: boolean) => void
-  onSelectedGardenChange: (type: GardenElementType | null, name: string | null, diameter: number | null) => void
+  onSelectedGardenChange: (type: GardenElementType | null, name: string | null, diameter: number | null, width: number | null) => void
   exportJSONRef: React.MutableRefObject<(() => void) | null>
   exportPNGRef: React.MutableRefObject<(() => void) | null>
   mapStyle: MapStyle
   kartverketVisible: boolean
   kartverketOpacity: number
   selectedGardenDiameter: number | null
+  selectedGardenWidth: number | null
   areaLabelsVisible: boolean
   zoomInRef: React.MutableRefObject<(() => void) | null>
   zoomOutRef: React.MutableRefObject<(() => void) | null>
@@ -97,6 +99,7 @@ export function MapView({
   kartverketVisible,
   kartverketOpacity,
   selectedGardenDiameter,
+  selectedGardenWidth,
   areaLabelsVisible,
   zoomInRef,
   zoomOutRef,
@@ -317,9 +320,28 @@ export function MapView({
         if (f.geometry.type !== "Polygon") continue
         const ring = (f.geometry as Polygon).coordinates[0]
         if (!ring || ring.length < 4) continue
+        const props = f.properties || {}
+        const center = centroid(ring)
+        // Polyline bands (hekk, sti): show length instead of area
+        if (props.featureType === "garden" && (props.hagenType === "hekk" || props.hagenType === "sti")) {
+          const gProps = typeof props.gardenProps === "string"
+            ? JSON.parse(props.gardenProps)
+            : (props.gardenProps || {})
+          const polylineCoords = gProps.polylineCoords as Position[] | undefined
+          if (polylineCoords && polylineCoords.length >= 2) {
+            const len = polylineLengthMeters(polylineCoords)
+            if (len >= 0.1) {
+              labels.push({
+                type: "Feature",
+                geometry: { type: "Point", coordinates: center },
+                properties: { label: `${len.toFixed(1)} m` },
+              })
+            }
+          }
+          continue
+        }
         const area = polygonAreaSqm(ring)
         if (area < 0.1) continue
-        const center = centroid(ring)
         labels.push({
           type: "Feature",
           geometry: { type: "Point", coordinates: center },
@@ -957,6 +979,18 @@ export function MapView({
             }
           }
 
+          // Buffer LineString into Polygon for polyline elements (hekk, sti)
+          if (el.drawMode === "polyline" && current.geometry.type === "LineString") {
+            const lineCoords = (current.geometry as GeoJSON.LineString).coordinates
+            if (lineCoords && lineCoords.length >= 2) {
+              const widthM = el.defaultWidth ?? 0.5
+              const ring = bufferPolyline(lineCoords, widthM)
+              current.geometry = { type: "Polygon", coordinates: [ring] }
+              gProps.polylineCoords = lineCoords
+              gProps.widthMeters = widthM
+            }
+          }
+
           current.properties = {
             ...current.properties,
             featureType: "garden",
@@ -1018,6 +1052,18 @@ export function MapView({
     // Auto-switch tool to select after shape completion (not text tool)
     map.on("draw.modechange", (e: { mode: string }) => {
       if (suppressModeSync.current) return
+      // Block direct_select on hekk/sti bands — vertex editing would warp the band
+      if (e.mode === "direct_select") {
+        const selectedIds = draw.getSelectedIds()
+        if (selectedIds.length === 1) {
+          const feature = draw.get(selectedIds[0])
+          const hagenType = feature?.properties?.hagenType
+          if (hagenType === "hekk" || hagenType === "sti") {
+            draw.changeMode("simple_select", { featureIds: selectedIds })
+            return
+          }
+        }
+      }
       if (e.mode === "simple_select" && activeToolRef.current !== "select" && activeToolRef.current !== "text" && activeToolRef.current !== "line" && activeToolRef.current !== "measure") {
         onToolChange("select")
       }
@@ -1048,6 +1094,7 @@ export function MapView({
             props.hagenType as GardenElementType,
             props.gardenName || null,
             gProps.diameter ?? null,
+            gProps.widthMeters ?? null,
           )
         } else {
           // Raw feature selected
@@ -1060,7 +1107,7 @@ export function MapView({
             strokeWidth: props.strokeWidth ?? 2,
             zone: props.zone || "Lawn",
           })
-          onSelectedGardenChange(null, null, null)
+          onSelectedGardenChange(null, null, null, null)
         }
       } else if (
         activeToolRef.current === "select"
@@ -1780,6 +1827,7 @@ export function MapView({
           props.hagenType as GardenElementType,
           props.gardenName || null,
           gProps.diameter,
+          gProps.widthMeters ?? null,
         )
       } else {
         // Scale polygon uniformly around center
@@ -1940,6 +1988,12 @@ export function MapView({
         map.getCanvas().style.cursor = "crosshair"
         map.dragPan.disable()
         break
+      case "polyline":
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        draw.changeMode("draw_line_string" as any, drawOpts)
+        map.getCanvas().style.cursor = "crosshair"
+        map.dragPan.disable()
+        break
       case "text":
         draw.changeMode("simple_select")
         map.getCanvas().style.cursor = "text"
@@ -2080,6 +2134,40 @@ export function MapView({
     syncScaleHandles(map, draw)
     saveToStorage()
   }, [selectedGardenDiameter, updateAreaLabels, syncGardenOverlays, syncScaleHandles, saveToStorage])
+
+  // Live-resize garden polyline band when width changes (hekk, sti)
+  useEffect(() => {
+    if (selectedGardenWidth === null) return
+    const draw = drawRef.current
+    const map = mapRef.current
+    if (!draw || !map) return
+    const selectedIds = draw.getSelectedIds()
+    if (selectedIds.length === 0) return
+
+    for (const id of selectedIds) {
+      const feature = draw.get(id)
+      if (!feature || feature.geometry.type !== "Polygon") continue
+      const props = feature.properties || {}
+      if (props.featureType !== "garden") continue
+      const el = GARDEN_ELEMENTS[props.hagenType as GardenElementType]
+      if (!el || el.drawMode !== "polyline") continue
+
+      const gProps = typeof props.gardenProps === "string"
+        ? JSON.parse(props.gardenProps)
+        : { ...(props.gardenProps || {}) }
+      const polylineCoords = gProps.polylineCoords as Position[] | undefined
+      if (!polylineCoords || polylineCoords.length < 2) continue
+
+      const ring = bufferPolyline(polylineCoords, selectedGardenWidth)
+      feature.geometry = { type: "Polygon", coordinates: [ring] }
+      gProps.widthMeters = selectedGardenWidth
+      feature.properties = { ...props, gardenProps: gProps }
+      draw.add(feature)
+    }
+    updateAreaLabels(map, draw)
+    syncScaleHandles(map, draw)
+    saveToStorage()
+  }, [selectedGardenWidth, updateAreaLabels, syncScaleHandles, saveToStorage])
 
   // Export functions
   const handleExportJSON = useCallback(() => {

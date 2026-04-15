@@ -68,6 +68,7 @@ function App() {
   const [selectedGardenType, setSelectedGardenType] = useState<GardenElementType | null>(null)
   const [selectedGardenName, setSelectedGardenName] = useState<string | null>(null)
   const [selectedGardenDiameter, setSelectedGardenDiameter] = useState<number | null>(null)
+  const [selectedGardenWidth, setSelectedGardenWidth] = useState<number | null>(null)
 
   // Auto-open settings on first visit if no token
   useEffect(() => {
@@ -116,10 +117,11 @@ function App() {
   }, [])
 
   const handleSelectedGardenChange = useCallback(
-    (type: GardenElementType | null, name: string | null, diameter: number | null) => {
+    (type: GardenElementType | null, name: string | null, diameter: number | null, width: number | null) => {
       setSelectedGardenType(type)
       setSelectedGardenName(name)
       setSelectedGardenDiameter(diameter)
+      setSelectedGardenWidth(width)
     },
     []
   )
@@ -133,6 +135,7 @@ function App() {
       setSelectedGardenType(null)
       setSelectedGardenName(null)
       setSelectedGardenDiameter(null)
+      setSelectedGardenWidth(null)
     }
   }, [])
 
@@ -252,6 +255,7 @@ function App() {
         kartverketVisible={kartverketVisible}
         kartverketOpacity={kartverketOpacity}
         selectedGardenDiameter={selectedGardenDiameter}
+        selectedGardenWidth={selectedGardenWidth}
         areaLabelsVisible={areaLabelsVisible}
         zoomInRef={zoomInRef}
         zoomOutRef={zoomOutRef}
@@ -274,9 +278,11 @@ function App() {
         activeGardenElement={isGardenSelected ? selectedGardenType : activeGardenElement}
         gardenFeatureName={selectedGardenName}
         gardenDiameter={selectedGardenDiameter}
+        gardenWidth={selectedGardenWidth}
         onGardenFeatureNameChange={setSelectedGardenName}
         onGardenColorChange={() => {}}
         onGardenDiameterChange={setSelectedGardenDiameter}
+        onGardenWidthChange={setSelectedGardenWidth}
         onShapeChange={handleShapeChange}
         onTextChange={handleTextChange}
         onLineChange={handleLineChange}

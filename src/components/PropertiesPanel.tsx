@@ -28,9 +28,11 @@ interface PropertiesPanelProps {
   activeGardenElement: GardenElementType | null
   gardenFeatureName: string | null
   gardenDiameter: number | null
+  gardenWidth: number | null
   onGardenFeatureNameChange: (name: string) => void
   onGardenColorChange: (color: string) => void
   onGardenDiameterChange: (diameter: number) => void
+  onGardenWidthChange: (width: number) => void
   onShapeChange: (props: Partial<ShapeProperties>) => void
   onTextChange: (props: Partial<TextProperties>) => void
   onLineChange: (props: Partial<LineProperties>) => void
@@ -70,9 +72,11 @@ export function PropertiesPanel({
   activeGardenElement,
   gardenFeatureName,
   gardenDiameter,
+  gardenWidth,
   onGardenFeatureNameChange,
   onGardenColorChange,
   onGardenDiameterChange,
+  onGardenWidthChange,
   onShapeChange,
   onTextChange,
   onLineChange,
@@ -129,6 +133,30 @@ export function PropertiesPanel({
                     max={gardenEl.type === "busk" ? 5 : 20}
                     step={0.1}
                     onValueChange={([v]) => onGardenDiameterChange(v)}
+                  />
+                </div>
+                <Separator />
+              </>
+            )}
+
+            {/* Width slider for polyline elements (hekk, sti) */}
+            {gardenWidth !== null && gardenEl.drawMode === "polyline" && (
+              <>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">
+                      Bredde
+                    </Label>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {gardenWidth.toFixed(1)} m
+                    </span>
+                  </div>
+                  <Slider
+                    value={[gardenWidth]}
+                    min={gardenEl.minWidth ?? 0.2}
+                    max={gardenEl.maxWidth ?? 3}
+                    step={0.1}
+                    onValueChange={([v]) => onGardenWidthChange(v)}
                   />
                 </div>
                 <Separator />

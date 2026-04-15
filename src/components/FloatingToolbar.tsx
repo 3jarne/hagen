@@ -19,7 +19,7 @@ import {
   type GardenCategoryDef,
 } from "@/lib/garden-types"
 
-export type Tool = "select" | "polygon" | "rectangle" | "circle" | "text" | "line" | "measure"
+export type Tool = "select" | "polygon" | "rectangle" | "circle" | "polyline" | "text" | "line" | "measure"
 export type ToolbarMode = "garden" | "raw"
 
 const rawTools: { value: Tool; icon: (active: boolean) => React.ReactNode; label: string; shortcut: string }[] = [
