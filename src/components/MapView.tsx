@@ -8,7 +8,7 @@ import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 import { drawStyles } from "@/lib/draw-styles"
 import DrawCircleMode, { createCirclePolygon, generateCanopyLines } from "@/lib/draw-circle-mode"
 import { bufferPolyline, polylineLengthMeters } from "@/lib/polyline-buffer"
-import { getSunInfo, projectShadowTip, buildSunPath, projectSunPosition } from "@/lib/sun-calc"
+import { getSunInfo, buildSunPath, projectSunPosition } from "@/lib/sun-calc"
 import { projectObjectShadow, OBJECT_HEIGHTS } from "@/lib/shadow"
 import { Solkompass } from "@/components/Solkompass"
 import DrawRectangleMode from "@/lib/draw-rectangle-mode"
@@ -545,13 +545,6 @@ export function MapView({
       if (info.isAboveHorizon) {
         // Sun icon — at the current point on the sun path (moves along the curve)
         const sunPos = projectSunPosition(anchor, info.azimuthDeg, info.altitudeRad)
-        // Shadow band from anchor to shadow tip (opposite of sun)
-        const shadowTip = projectShadowTip(anchor, info.azimuthDeg, info.altitudeRad)
-        sunFeatures.push({
-          type: "Feature",
-          geometry: { type: "LineString", coordinates: [anchor, shadowTip] },
-          properties: { kind: "shadow" },
-        })
         if (sunPos) {
           sunFeatures.push({
             type: "Feature",

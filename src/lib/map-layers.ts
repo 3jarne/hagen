@@ -439,7 +439,7 @@ export function addObjectShadowsLayer(map: Map) {
       source: "object-shadows",
       paint: {
         "fill-color": "#000000",
-        "fill-opacity": 0.35,
+        "fill-opacity": 0.18,
       },
     })
   }
@@ -527,71 +527,62 @@ export function addSolkompassLayers(map: Map) {
       },
     })
   }
-  // Shadow band (anchor -> shadow tip) — wide, semitransparent
-  if (!map.getLayer("solkompass-sun-ray")) {
-    map.addLayer({
-      id: "solkompass-sun-ray",
-      type: "line",
-      source: "solkompass-sun",
-      filter: ["==", ["get", "kind"], "shadow"],
-      paint: {
-        "line-color": "#404040",
-        "line-width": 64,
-        "line-opacity": 0.3,
-      },
-      layout: {
-        "line-cap": "round",
-      },
-    })
-  }
-  // Shadow label
-  if (!map.getLayer("solkompass-shadow-label")) {
-    map.addLayer({
-      id: "solkompass-shadow-label",
-      type: "symbol",
-      source: "solkompass-sun",
-      filter: ["==", ["get", "kind"], "shadow"],
-      layout: {
-        "symbol-placement": "line-center",
-        "text-field": "SKYGGE",
-        "text-size": 12,
-        "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-        "text-letter-spacing": 0.2,
-        "text-allow-overlap": true,
-      },
-      paint: {
-        "text-color": "#ffffff",
-        "text-opacity": 0.8,
-      },
-    })
-  }
   // Sun icon (placed in SUN direction — big and visible)
+  // Register a custom sun image for the symbol layer
+  if (!map.hasImage("solkompass-sun-img")) {
+    const size = 64
+    const canvas = document.createElement("canvas")
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext("2d")!
+    const cx = size / 2
+    const cy = size / 2
+    const r = size / 2 - 4
+    // Outer circle
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, Math.PI * 2)
+    ctx.fillStyle = "#fbbf24"
+    ctx.fill()
+    ctx.strokeStyle = "#d97706"
+    ctx.lineWidth = 3
+    ctx.stroke()
+    // Sun rays (8 lines radiating outward from inner circle)
+    const innerR = r * 0.55
+    const outerR = r * 0.82
+    ctx.strokeStyle = "#d97706"
+    ctx.lineWidth = 2.5
+    ctx.lineCap = "round"
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2
+      ctx.beginPath()
+      ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR)
+      ctx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR)
+      ctx.stroke()
+    }
+    // Inner circle (sun body)
+    ctx.beginPath()
+    ctx.arc(cx, cy, r * 0.38, 0, Math.PI * 2)
+    ctx.strokeStyle = "#d97706"
+    ctx.lineWidth = 2.5
+    ctx.stroke()
+
+    const imageData = ctx.getImageData(0, 0, size, size)
+    map.addImage("solkompass-sun-img", {
+      width: size,
+      height: size,
+      data: new Uint8Array(imageData.data.buffer),
+    })
+  }
   if (!map.getLayer("solkompass-sun-icon")) {
     map.addLayer({
       id: "solkompass-sun-icon",
-      type: "circle",
-      source: "solkompass-sun",
-      filter: ["==", ["get", "kind"], "sun"],
-      paint: {
-        "circle-radius": 32,
-        "circle-color": "#fbbf24",
-        "circle-stroke-color": "#d97706",
-        "circle-stroke-width": 3,
-        "circle-opacity": 0.85,
-      },
-    })
-  }
-  // Sun label on the icon
-  if (!map.getLayer("solkompass-sun-label")) {
-    map.addLayer({
-      id: "solkompass-sun-label",
       type: "symbol",
       source: "solkompass-sun",
       filter: ["==", ["get", "kind"], "sun"],
       layout: {
-        "text-field": "☀",
-        "text-size": 28,
-        "text-allow-overlap": true,
+        "icon-image": "solkompass-sun-img",
+        "icon-size": 1,
+        "icon-allow-overlap": true,
       },
     })
   }
