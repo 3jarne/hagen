@@ -78,8 +78,8 @@ export const GARDEN_ELEMENTS: Record<GardenElementType, GardenElement> = {
   groennsakhage:  { type: "groennsakhage",  emoji: "🥕", label: "Grønnsakhage",  category: "planter",       drawMode: "polygon",  style: makeStyle("#a3e635") },
   dam:            { type: "dam",            emoji: "💧", label: "Dam",           category: "vann_sti",      drawMode: "polygon",  style: makeStyle("#38bdf8") },
   sti:            { type: "sti",            emoji: "🪨", label: "Sti",           category: "vann_sti",      drawMode: "polyline", style: makeStyle("#d6d3d1"), defaultWidth: 1.0, minWidth: 0.3, maxWidth: 3.0 },
-  terrasse:       { type: "terrasse",       emoji: "🪵", label: "Terrasse",      category: "konstruksjon",  drawMode: "polygon",  style: makeStyle("#d6d3d1", 0.6) },
-  bygning:        { type: "bygning",        emoji: "🏠", label: "Bygning",       category: "konstruksjon",  drawMode: "rectangle", style: makeStyle("#9ca3af", 0.6) },
+  terrasse:       { type: "terrasse",       emoji: "🪵", label: "Terrasse",      category: "konstruksjon",  drawMode: "polygon",  style: makeStyle("#d4a574", 0.6) },
+  bygning:        { type: "bygning",        emoji: "🏠", label: "Bygning",       category: "konstruksjon",  drawMode: "polygon",  style: makeStyle("#d4b896", 0.6) },
 }
 
 export const GARDEN_CATEGORIES: GardenCategoryDef[] = [
