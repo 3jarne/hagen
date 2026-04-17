@@ -39,9 +39,11 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
   }
 
   const handleTimeChange = (value: number) => {
-    const h = Math.floor(value)
-    const m = Math.round((value - h) * 60)
+    const clamped = Math.max(0, Math.min(value, 23.75))
+    const h = Math.floor(clamped)
+    const m = Math.round((clamped - h) * 60)
     const nd = new Date(date)
+    nd.setFullYear(date.getFullYear(), date.getMonth(), date.getDate())
     nd.setHours(h, m, 0, 0)
     onDateChange(nd)
   }
@@ -51,7 +53,7 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
   }
 
   return (
-    <div className="absolute top-4 right-4 z-40 bg-white dark:bg-neutral-900 rounded-lg shadow-xl p-3 w-56 text-sm space-y-3 border border-neutral-200 dark:border-neutral-800">
+    <div className="absolute top-14 right-4 z-40 bg-white dark:bg-neutral-900 rounded-lg shadow-xl p-3 w-56 text-sm space-y-3 border border-neutral-200 dark:border-neutral-800">
       <div className="flex items-center gap-2 font-semibold">
         <Sun className="h-4 w-4 text-amber-500" />
         <span>Solkompass</span>
@@ -83,7 +85,7 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
         <Slider
           value={[timeValue]}
           min={0}
-          max={24}
+          max={23.75}
           step={0.25}
           onValueChange={([v]) => handleTimeChange(v)}
         />

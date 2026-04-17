@@ -1,4 +1,4 @@
-import { Undo2, Redo2, Search, Settings } from "lucide-react"
+import { Undo2, Redo2, Search, Settings, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import {
@@ -199,6 +199,15 @@ export function TopBar({
       </div>
 
       {/* Settings */}
+      <Button
+        variant={solkompassVisible ? "secondary" : "ghost"}
+        size="icon"
+        className="h-8 w-8"
+        onClick={() => onSolkompassVisibleChange(!solkompassVisible)}
+        title="Solkompass"
+      >
+        <Sun className="h-4 w-4 text-amber-500" />
+      </Button>
       <Button
         variant="ghost"
         size="icon"
