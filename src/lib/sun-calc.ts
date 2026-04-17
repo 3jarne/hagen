@@ -141,43 +141,63 @@ export function projectShadowTip(
 }
 
 /**
- * Build the shadow-tip arc for a given date, sampled every 15 min
- * between sunrise and sunset. Returns arc points + hourly markers.
- * Returns empty arrays for polar-night days (invalid sunrise/sunset).
+ * Project sun position onto the ground plane for the sun-path diagram.
+ * Distance from anchor scales with cosine of altitude:
+ * - Sun overhead (altitude 90°): distance 0 (directly above anchor)
+ * - Sun at horizon (altitude 0°): distance maxDistM (far from anchor)
+ * - Returns null when sun is below horizon.
  */
-export function buildSundialArc(
+export function projectSunPosition(
+  anchor: Position,
+  azimuthDeg: number,
+  altitudeRad: number,
+  maxDistM = 20,
+): Position | null {
+  if (altitudeRad <= 0) return null
+  const distM = Math.cos(altitudeRad) * maxDistM
+  const bearingRad = (azimuthDeg * Math.PI) / 180
+  const dLat = (distM * Math.cos(bearingRad)) / 111320
+  const dLng =
+    (distM * Math.sin(bearingRad)) /
+    (111320 * Math.cos((anchor[1] * Math.PI) / 180))
+  return [anchor[0] + dLng, anchor[1] + dLat]
+}
+
+/**
+ * Build the sun-path curve for a given date — the trace of sun positions
+ * from sunrise to sunset, sampled every 15 min. Also returns hourly markers.
+ * Positions computed via projectSunPosition (in sun direction, distance by altitude).
+ */
+export function buildSunPath(
   date: Date,
   lat: number,
   lng: number,
   anchor: Position,
-): { arc: Position[]; hourMarkers: Position[] } {
+): { path: Position[]; hourMarkers: Position[] } {
   const info = getSunInfo(date, lat, lng)
-  const arc: Position[] = []
+  const path: Position[] = []
   const hourMarkers: Position[] = []
   const start = info.sunrise.getTime()
   const end = info.sunset.getTime()
   if (!isFinite(start) || !isFinite(end) || end <= start) {
-    return { arc, hourMarkers }
+    return { path, hourMarkers }
   }
 
   const step = 15 * 60 * 1000
   for (let t = start; t <= end; t += step) {
     const s = getSunInfo(new Date(t), lat, lng)
-    if (s.isAboveHorizon) {
-      arc.push(projectShadowTip(anchor, s.azimuthDeg, s.altitudeRad))
-    }
+    const pos = projectSunPosition(anchor, s.azimuthDeg, s.altitudeRad)
+    if (pos) path.push(pos)
   }
 
-  // Hourly marker dots from first full hour after sunrise
   const firstHour = new Date(start)
   firstHour.setMinutes(0, 0, 0)
   firstHour.setHours(firstHour.getHours() + 1)
   for (let t = firstHour.getTime(); t <= end; t += 3600 * 1000) {
     const s = getSunInfo(new Date(t), lat, lng)
-    if (s.isAboveHorizon) {
-      hourMarkers.push(projectShadowTip(anchor, s.azimuthDeg, s.altitudeRad))
-    }
+    const pos = projectSunPosition(anchor, s.azimuthDeg, s.altitudeRad)
+    if (pos) hourMarkers.push(pos)
   }
 
-  return { arc, hourMarkers }
+  return { path, hourMarkers }
 }

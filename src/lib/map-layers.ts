@@ -421,6 +421,31 @@ export function addScaleHandlesLayer(map: Map) {
 }
 
 /**
+ * Add object-shadows source + layer. Shadows cast by drawn garden
+ * objects (trees, bushes, hedges, buildings) at the current sun time.
+ * Added before solkompass layers so sun indicators render on top.
+ */
+export function addObjectShadowsLayer(map: Map) {
+  if (!map.getSource("object-shadows")) {
+    map.addSource("object-shadows", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    })
+  }
+  if (!map.getLayer("object-shadows")) {
+    map.addLayer({
+      id: "object-shadows",
+      type: "fill",
+      source: "object-shadows",
+      paint: {
+        "fill-color": "#000000",
+        "fill-opacity": 0.35,
+      },
+    })
+  }
+}
+
+/**
  * Add solkompass sources + layers (sundial arc, hour markers,
  * current sun ray, sun icon, anchor dot).
  * Added LAST so these render on top of all other map content.
@@ -591,5 +616,6 @@ export function restoreLayersAfterStyleChange(
   addMeasurementLayers(map)
   addCanopyLinesLayer(map)
   addScaleHandlesLayer(map)
+  addObjectShadowsLayer(map)
   addSolkompassLayers(map)
 }

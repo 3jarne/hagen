@@ -59,9 +59,9 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
       </div>
 
       <div className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs leading-snug space-y-1">
-        <p><span className="text-amber-600 font-semibold">☀ Sol</span> — viser hvor solen er nå</p>
-        <p><span className="text-neutral-500 font-semibold">▬ Skygge</span> — retning skyggen faller</p>
-        <p><span className="text-amber-500 font-semibold">⌒ Kurve</span> — skyggens vei gjennom dagen</p>
+        <p><span className="text-amber-600 font-semibold">☀ Sol</span> — hvor solen er nå</p>
+        <p><span className="text-amber-500 font-semibold">⌒ Solens vei</span> — sol gjennom dagen</p>
+        <p><span className="text-neutral-500 font-semibold">▬ Skygge</span> — hvor skygger faller fra objekter</p>
       </div>
 
       <div className="space-y-1">

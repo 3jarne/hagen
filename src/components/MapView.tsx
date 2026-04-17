@@ -8,7 +8,8 @@ import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 import { drawStyles } from "@/lib/draw-styles"
 import DrawCircleMode, { createCirclePolygon, generateCanopyLines } from "@/lib/draw-circle-mode"
 import { bufferPolyline, polylineLengthMeters } from "@/lib/polyline-buffer"
-import { getSunInfo, projectShadowTip, buildSundialArc } from "@/lib/sun-calc"
+import { getSunInfo, projectShadowTip, buildSunPath, projectSunPosition } from "@/lib/sun-calc"
+import { projectObjectShadow, OBJECT_HEIGHTS } from "@/lib/shadow"
 import { Solkompass } from "@/components/Solkompass"
 import DrawRectangleMode from "@/lib/draw-rectangle-mode"
 import DrawPolygonMode from "@/lib/draw-polygon-mode"
@@ -30,6 +31,7 @@ import {
   addCanopyLinesLayer,
   addScaleHandlesLayer,
   addSolkompassLayers,
+  addObjectShadowsLayer,
 } from "@/lib/map-layers"
 import { loadProject, saveProject } from "@/lib/storage"
 import { exportJSON, exportPNG } from "@/lib/export"
@@ -125,10 +127,18 @@ export function MapView({
   const textDefaultsRef = useRef(textDefaults)
   const lineDefaultsRef = useRef(lineDefaults)
   const activeGardenElementRef = useRef(activeGardenElement)
+  const solkompassVisibleRef = useRef(solkompassVisible)
+  const solkompassDateRef = useRef(solkompassDate)
 
   useEffect(() => {
     activeGardenElementRef.current = activeGardenElement
   }, [activeGardenElement])
+  useEffect(() => {
+    solkompassVisibleRef.current = solkompassVisible
+  }, [solkompassVisible])
+  useEffect(() => {
+    solkompassDateRef.current = solkompassDate
+  }, [solkompassDate])
 
   useEffect(() => {
     shapeDefaultsRef.current = shapeDefaults
@@ -504,22 +514,15 @@ export function MapView({
       const lat = anchor[1]
       const lng = anchor[0]
 
-      const { arc, hourMarkers } = buildSundialArc(date, lat, lng, anchor)
+      const { path, hourMarkers } = buildSunPath(date, lat, lng, anchor)
       const info = getSunInfo(date, lat, lng)
 
-      // Helper: offset a lng/lat position by distance in meters at a compass bearing.
-      const offsetMeters = (from: Position, bearingDeg: number, distM: number): Position => {
-        const bearingRad = (bearingDeg * Math.PI) / 180
-        const dLat = (distM * Math.cos(bearingRad)) / 111320
-        const dLng = (distM * Math.sin(bearingRad)) / (111320 * Math.cos((from[1] * Math.PI) / 180))
-        return [from[0] + dLng, from[1] + dLat]
-      }
-
       const arcFeatures: GeoJSON.Feature[] = []
-      if (arc.length >= 2) {
+      // Sun-path curve: the sun's journey across the sky, projected to ground
+      if (path.length >= 2) {
         arcFeatures.push({
           type: "Feature",
-          geometry: { type: "LineString", coordinates: arc },
+          geometry: { type: "LineString", coordinates: path },
           properties: { kind: "arc" },
         })
       }
@@ -530,7 +533,7 @@ export function MapView({
           properties: { kind: "hour" },
         })
       }
-      // Anchor dot
+      // Anchor dot (the "stick")
       arcFeatures.push({
         type: "Feature",
         geometry: { type: "Point", coordinates: anchor },
@@ -540,23 +543,67 @@ export function MapView({
 
       const sunFeatures: GeoJSON.Feature[] = []
       if (info.isAboveHorizon) {
-        // Shadow line from anchor to shadow tip (opposite of sun)
+        // Sun icon — at the current point on the sun path (moves along the curve)
+        const sunPos = projectSunPosition(anchor, info.azimuthDeg, info.altitudeRad)
+        // Shadow band from anchor to shadow tip (opposite of sun)
         const shadowTip = projectShadowTip(anchor, info.azimuthDeg, info.altitudeRad)
         sunFeatures.push({
           type: "Feature",
           geometry: { type: "LineString", coordinates: [anchor, shadowTip] },
           properties: { kind: "shadow" },
         })
-        // Sun icon in the SUN direction at a fixed distance (intuitive)
-        const SUN_ICON_DIST_M = 20
-        const sunPos = offsetMeters(anchor, info.azimuthDeg, SUN_ICON_DIST_M)
-        sunFeatures.push({
-          type: "Feature",
-          geometry: { type: "Point", coordinates: sunPos },
-          properties: { kind: "sun" },
-        })
+        if (sunPos) {
+          sunFeatures.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: sunPos },
+            properties: { kind: "sun" },
+          })
+        }
       }
       sunSource.setData({ type: "FeatureCollection", features: sunFeatures })
+    },
+    [],
+  )
+
+  /** Sync object shadows for all drawn garden features with height */
+  const syncObjectShadows = useCallback(
+    (map: mapboxgl.Map, draw: MapboxDraw, visible: boolean, date: Date) => {
+      const source = map.getSource("object-shadows") as mapboxgl.GeoJSONSource | undefined
+      if (!source) return
+
+      if (!visible) {
+        source.setData({ type: "FeatureCollection", features: [] })
+        return
+      }
+
+      const lat = CONFIG.defaultCenter[1]
+      const lng = CONFIG.defaultCenter[0]
+      const info = getSunInfo(date, lat, lng)
+
+      if (!info.isAboveHorizon) {
+        source.setData({ type: "FeatureCollection", features: [] })
+        return
+      }
+
+      const features: GeoJSON.Feature[] = []
+      for (const f of draw.getAll().features) {
+        if (f.geometry.type !== "Polygon") continue
+        const hagenType = (f.properties?.hagenType as string) || ""
+        const heightM = OBJECT_HEIGHTS[hagenType]
+        if (!heightM) continue
+
+        const ring = (f.geometry as GeoJSON.Polygon).coordinates[0]
+        if (!ring || ring.length < 4) continue
+        const shadowRing = projectObjectShadow(ring, heightM, info)
+        if (shadowRing.length < 4) continue
+        features.push({
+          type: "Feature",
+          geometry: { type: "Polygon", coordinates: [shadowRing] },
+          properties: {},
+        })
+      }
+
+      source.setData({ type: "FeatureCollection", features })
     },
     [],
   )
@@ -965,6 +1012,7 @@ export function MapView({
       addMeasurementLayers(map)
       addCanopyLinesLayer(map)
       addScaleHandlesLayer(map)
+      addObjectShadowsLayer(map)
       addSolkompassLayers(map)
 
       // Recalculate text and line bbox on map move/zoom
@@ -1102,6 +1150,7 @@ export function MapView({
       }
       updateAreaLabels(map, draw)
       syncGardenOverlays(map, draw)
+      syncObjectShadows(map, draw, solkompassVisibleRef.current, solkompassDateRef.current)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -1113,6 +1162,7 @@ export function MapView({
     map.on("draw.update", () => {
       updateAreaLabels(map, draw)
       syncGardenOverlays(map, draw)
+      syncObjectShadows(map, draw, solkompassVisibleRef.current, solkompassDateRef.current)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -1125,6 +1175,7 @@ export function MapView({
       updateAreaLabels(map, draw)
       syncGardenOverlays(map, draw)
       syncScaleHandles(map, draw)
+      syncObjectShadows(map, draw, solkompassVisibleRef.current, solkompassDateRef.current)
       history.push({
         drawFeatures: draw.getAll().features,
         textFeatures: [...textFeaturesRef.current],
@@ -2216,8 +2267,9 @@ export function MapView({
     updateAreaLabels(map, draw)
     syncGardenOverlays(map, draw)
     syncScaleHandles(map, draw)
+    syncObjectShadows(map, draw, solkompassVisibleRef.current, solkompassDateRef.current)
     saveToStorage()
-  }, [selectedGardenDiameter, updateAreaLabels, syncGardenOverlays, syncScaleHandles, saveToStorage])
+  }, [selectedGardenDiameter, updateAreaLabels, syncGardenOverlays, syncScaleHandles, syncObjectShadows, saveToStorage])
 
   // Live-resize garden polyline band when width changes (hekk, sti)
   useEffect(() => {
@@ -2250,15 +2302,18 @@ export function MapView({
     }
     updateAreaLabels(map, draw)
     syncScaleHandles(map, draw)
+    syncObjectShadows(map, draw, solkompassVisibleRef.current, solkompassDateRef.current)
     saveToStorage()
-  }, [selectedGardenWidth, updateAreaLabels, syncScaleHandles, saveToStorage])
+  }, [selectedGardenWidth, updateAreaLabels, syncScaleHandles, syncObjectShadows, saveToStorage])
 
-  // Sync solkompass on date/visibility changes
+  // Sync solkompass + object shadows on date/visibility changes
   useEffect(() => {
     const map = mapRef.current
+    const draw = drawRef.current
     if (!map) return
     syncSolkompass(map, solkompassVisible, solkompassDate)
-  }, [solkompassVisible, solkompassDate, syncSolkompass])
+    if (draw) syncObjectShadows(map, draw, solkompassVisible, solkompassDate)
+  }, [solkompassVisible, solkompassDate, syncSolkompass, syncObjectShadows])
 
   // Export functions
   const handleExportJSON = useCallback(() => {
@@ -2335,6 +2390,7 @@ export function MapView({
       if (draw) {
         updateAreaLabels(map, draw)
         syncGardenOverlays(map, draw)
+        syncObjectShadows(map, draw, solkompassVisible, solkompassDate)
       }
       syncSolkompass(map, solkompassVisible, solkompassDate)
 
