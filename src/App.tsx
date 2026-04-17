@@ -42,6 +42,8 @@ function App() {
   const [kartverketVisible, setKartverketVisible] = useState(true)
   const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
   const [areaLabelsVisible, setAreaLabelsVisible] = useState(true)
+  const [solkompassVisible, setSolkompassVisible] = useState(false)
+  const [solkompassDate, setSolkompassDate] = useState<Date>(() => new Date())
 
   // Properties panel state — global defaults (never overwritten by selection)
   const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
@@ -228,6 +230,8 @@ function App() {
         onResetView={() => resetViewRef.current?.()}
         areaLabelsVisible={areaLabelsVisible}
         onAreaLabelsVisibleChange={setAreaLabelsVisible}
+        solkompassVisible={solkompassVisible}
+        onSolkompassVisibleChange={setSolkompassVisible}
       />
       <MapView
         onZoomChange={handleZoomChange}
@@ -257,6 +261,9 @@ function App() {
         selectedGardenDiameter={selectedGardenDiameter}
         selectedGardenWidth={selectedGardenWidth}
         areaLabelsVisible={areaLabelsVisible}
+        solkompassVisible={solkompassVisible}
+        solkompassDate={solkompassDate}
+        onSolkompassDateChange={setSolkompassDate}
         zoomInRef={zoomInRef}
         zoomOutRef={zoomOutRef}
         resetViewRef={resetViewRef}

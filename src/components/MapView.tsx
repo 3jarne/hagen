@@ -8,6 +8,8 @@ import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
 import { drawStyles } from "@/lib/draw-styles"
 import DrawCircleMode, { createCirclePolygon, generateCanopyLines } from "@/lib/draw-circle-mode"
 import { bufferPolyline, polylineLengthMeters } from "@/lib/polyline-buffer"
+import { getSunInfo, projectShadowTip, buildSundialArc } from "@/lib/sun-calc"
+import { Solkompass } from "@/components/Solkompass"
 import DrawRectangleMode from "@/lib/draw-rectangle-mode"
 import DrawPolygonMode from "@/lib/draw-polygon-mode"
 import { UndoRedoHistory, type Snapshot } from "@/lib/history"
@@ -27,6 +29,7 @@ import {
   restoreLayersAfterStyleChange,
   addCanopyLinesLayer,
   addScaleHandlesLayer,
+  addSolkompassLayers,
 } from "@/lib/map-layers"
 import { loadProject, saveProject } from "@/lib/storage"
 import { exportJSON, exportPNG } from "@/lib/export"
@@ -61,6 +64,9 @@ interface MapViewProps {
   selectedGardenDiameter: number | null
   selectedGardenWidth: number | null
   areaLabelsVisible: boolean
+  solkompassVisible: boolean
+  solkompassDate: Date
+  onSolkompassDateChange: (d: Date) => void
   zoomInRef: React.MutableRefObject<(() => void) | null>
   zoomOutRef: React.MutableRefObject<(() => void) | null>
   resetViewRef: React.MutableRefObject<(() => void) | null>
@@ -101,6 +107,9 @@ export function MapView({
   selectedGardenDiameter,
   selectedGardenWidth,
   areaLabelsVisible,
+  solkompassVisible,
+  solkompassDate,
+  onSolkompassDateChange,
   zoomInRef,
   zoomOutRef,
   resetViewRef,
@@ -477,6 +486,68 @@ export function MapView({
 
     handleSource.setData({ type: "FeatureCollection", features: allFeatures })
   }, [])
+
+  /** Sync solkompass sources: sundial arc, hour markers, current sun ray + icon */
+  const syncSolkompass = useCallback(
+    (map: mapboxgl.Map, visible: boolean, date: Date) => {
+      const arcSource = map.getSource("solkompass-arc") as mapboxgl.GeoJSONSource | undefined
+      const sunSource = map.getSource("solkompass-sun") as mapboxgl.GeoJSONSource | undefined
+      if (!arcSource || !sunSource) return
+
+      if (!visible) {
+        arcSource.setData({ type: "FeatureCollection", features: [] })
+        sunSource.setData({ type: "FeatureCollection", features: [] })
+        return
+      }
+
+      const anchor: Position = [CONFIG.defaultCenter[0], CONFIG.defaultCenter[1]]
+      const lat = anchor[1]
+      const lng = anchor[0]
+
+      const { arc, hourMarkers } = buildSundialArc(date, lat, lng, anchor)
+      const info = getSunInfo(date, lat, lng)
+
+      const arcFeatures: GeoJSON.Feature[] = []
+      if (arc.length >= 2) {
+        arcFeatures.push({
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: arc },
+          properties: {},
+        })
+      }
+      for (const pt of hourMarkers) {
+        arcFeatures.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: pt },
+          properties: {},
+        })
+      }
+      // Anchor dot
+      arcFeatures.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: anchor },
+        properties: { anchor: true },
+      })
+      arcSource.setData({ type: "FeatureCollection", features: arcFeatures })
+
+      const sunFeatures: GeoJSON.Feature[] = []
+      if (info.isAboveHorizon) {
+        const tip = projectShadowTip(anchor, info.azimuthDeg, info.altitudeRad)
+        sunFeatures.push({
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: [anchor, tip] },
+          properties: {},
+        })
+        sunFeatures.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: tip },
+          properties: {},
+        })
+      }
+      sunSource.setData({ type: "FeatureCollection", features: sunFeatures })
+    },
+    [],
+  )
 
   /** Sync line features to map GeoJSON source, including arrow point features */
   const syncLineFeatures = useCallback((map: mapboxgl.Map) => {
@@ -882,6 +953,7 @@ export function MapView({
       addMeasurementLayers(map)
       addCanopyLinesLayer(map)
       addScaleHandlesLayer(map)
+      addSolkompassLayers(map)
 
       // Recalculate text and line bbox on map move/zoom
       map.on("move", () => {
@@ -2169,6 +2241,13 @@ export function MapView({
     saveToStorage()
   }, [selectedGardenWidth, updateAreaLabels, syncScaleHandles, saveToStorage])
 
+  // Sync solkompass on date/visibility changes
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    syncSolkompass(map, solkompassVisible, solkompassDate)
+  }, [solkompassVisible, solkompassDate, syncSolkompass])
+
   // Export functions
   const handleExportJSON = useCallback(() => {
     const draw = drawRef.current
@@ -2245,6 +2324,7 @@ export function MapView({
         updateAreaLabels(map, draw)
         syncGardenOverlays(map, draw)
       }
+      syncSolkompass(map, solkompassVisible, solkompassDate)
 
       // Restore view
       map.setCenter(center)
@@ -2567,6 +2647,14 @@ export function MapView({
   return (
     <>
       <div ref={mapContainerRef} className="absolute inset-0" />
+      {solkompassVisible && (
+        <Solkompass
+          lat={CONFIG.defaultCenter[1]}
+          lng={CONFIG.defaultCenter[0]}
+          date={solkompassDate}
+          onDateChange={onSolkompassDateChange}
+        />
+      )}
       {contextMenu && (
         <div
           className="absolute z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md"

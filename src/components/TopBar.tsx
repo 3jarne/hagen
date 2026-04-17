@@ -37,6 +37,8 @@ interface TopBarProps {
   onResetView: () => void
   areaLabelsVisible: boolean
   onAreaLabelsVisibleChange: (visible: boolean) => void
+  solkompassVisible: boolean
+  onSolkompassVisibleChange: (visible: boolean) => void
 }
 
 export function TopBar({
@@ -59,6 +61,8 @@ export function TopBar({
   onResetView,
   areaLabelsVisible,
   onAreaLabelsVisibleChange,
+  solkompassVisible,
+  onSolkompassVisibleChange,
 }: TopBarProps) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   return (
@@ -128,6 +132,12 @@ export function TopBar({
               onCheckedChange={onAreaLabelsVisibleChange}
             >
               Vis areal (m²)
+            </MenubarCheckboxItem>
+            <MenubarCheckboxItem
+              checked={solkompassVisible}
+              onCheckedChange={onSolkompassVisibleChange}
+            >
+              Vis solkompass
             </MenubarCheckboxItem>
             <MenubarSeparator />
             <MenubarItem onClick={onZoomIn}>

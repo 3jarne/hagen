@@ -421,6 +421,83 @@ export function addScaleHandlesLayer(map: Map) {
 }
 
 /**
+ * Add solkompass sources + layers (sundial arc, hour markers,
+ * current sun ray, sun icon, anchor dot).
+ * Added LAST so these render on top of all other map content.
+ */
+export function addSolkompassLayers(map: Map) {
+  if (!map.getSource("solkompass-arc")) {
+    map.addSource("solkompass-arc", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    })
+  }
+  if (!map.getSource("solkompass-sun")) {
+    map.addSource("solkompass-sun", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    })
+  }
+
+  // Arc line (shadow-tip trace)
+  if (!map.getLayer("solkompass-arc-line")) {
+    map.addLayer({
+      id: "solkompass-arc-line",
+      type: "line",
+      source: "solkompass-arc",
+      filter: ["==", "$type", "LineString"],
+      paint: {
+        "line-color": "#eab308",
+        "line-width": 1.5,
+        "line-dasharray": [2, 2],
+      },
+    })
+  }
+  // Hour-marker dots + anchor dot
+  if (!map.getLayer("solkompass-arc-points")) {
+    map.addLayer({
+      id: "solkompass-arc-points",
+      type: "circle",
+      source: "solkompass-arc",
+      filter: ["==", "$type", "Point"],
+      paint: {
+        "circle-radius": 3,
+        "circle-color": "#eab308",
+      },
+    })
+  }
+  // Current shadow ray (anchor -> sun tip)
+  if (!map.getLayer("solkompass-sun-ray")) {
+    map.addLayer({
+      id: "solkompass-sun-ray",
+      type: "line",
+      source: "solkompass-sun",
+      filter: ["==", "$type", "LineString"],
+      paint: {
+        "line-color": "#f59e0b",
+        "line-width": 1.5,
+        "line-dasharray": [3, 2],
+      },
+    })
+  }
+  // Sun icon at current tip
+  if (!map.getLayer("solkompass-sun-icon")) {
+    map.addLayer({
+      id: "solkompass-sun-icon",
+      type: "circle",
+      source: "solkompass-sun",
+      filter: ["==", "$type", "Point"],
+      paint: {
+        "circle-radius": 6,
+        "circle-color": "#fbbf24",
+        "circle-stroke-color": "#d97706",
+        "circle-stroke-width": 2,
+      },
+    })
+  }
+}
+
+/**
  * Re-add all custom layers after a map style change.
  * Call this inside map.once("style.load", ...).
  */
@@ -439,4 +516,5 @@ export function restoreLayersAfterStyleChange(
   addMeasurementLayers(map)
   addCanopyLinesLayer(map)
   addScaleHandlesLayer(map)
+  addSolkompassLayers(map)
 }
