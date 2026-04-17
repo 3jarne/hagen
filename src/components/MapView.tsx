@@ -536,12 +536,6 @@ export function MapView({
         geometry: { type: "Point", coordinates: anchor },
         properties: { kind: "anchor" },
       })
-      // "N" label 5m north of anchor
-      arcFeatures.push({
-        type: "Feature",
-        geometry: { type: "Point", coordinates: offsetMeters(anchor, 0, 5) },
-        properties: { kind: "north", label: "N" },
-      })
       arcSource.setData({ type: "FeatureCollection", features: arcFeatures })
 
       const sunFeatures: GeoJSON.Feature[] = []
@@ -554,7 +548,7 @@ export function MapView({
           properties: { kind: "shadow" },
         })
         // Sun icon in the SUN direction at a fixed distance (intuitive)
-        const SUN_ICON_DIST_M = 8
+        const SUN_ICON_DIST_M = 20
         const sunPos = offsetMeters(anchor, info.azimuthDeg, SUN_ICON_DIST_M)
         sunFeatures.push({
           type: "Feature",
@@ -2666,12 +2660,19 @@ export function MapView({
     <>
       <div ref={mapContainerRef} className="absolute inset-0" />
       {solkompassVisible && (
-        <Solkompass
-          lat={CONFIG.defaultCenter[1]}
-          lng={CONFIG.defaultCenter[0]}
-          date={solkompassDate}
-          onDateChange={onSolkompassDateChange}
-        />
+        <>
+          <Solkompass
+            lat={CONFIG.defaultCenter[1]}
+            lng={CONFIG.defaultCenter[0]}
+            date={solkompassDate}
+            onDateChange={onSolkompassDateChange}
+          />
+          {/* Cardinal direction labels at viewport edges */}
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 text-red-600 font-bold text-lg drop-shadow-[0_0_4px_rgba(255,255,255,1)]">N</div>
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 text-neutral-500 font-bold text-lg drop-shadow-[0_0_4px_rgba(255,255,255,1)]">S</div>
+          <div className="absolute top-1/2 right-4 -translate-y-1/2 z-30 text-neutral-500 font-bold text-lg drop-shadow-[0_0_4px_rgba(255,255,255,1)]">Ø</div>
+          <div className="absolute top-1/2 left-4 -translate-y-1/2 z-30 text-neutral-500 font-bold text-lg drop-shadow-[0_0_4px_rgba(255,255,255,1)]">V</div>
+        </>
       )}
       {contextMenu && (
         <div

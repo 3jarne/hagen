@@ -1,8 +1,8 @@
 import SunCalc from "suncalc"
 import type { Position } from "geojson"
 
-const STICK_HEIGHT_M = 3
-const MAX_SHADOW_M = 30
+const STICK_HEIGHT_M = 10
+const MAX_SHADOW_M = 80
 
 /**
  * The garden's fixed timezone. Hardcoded for Norway.

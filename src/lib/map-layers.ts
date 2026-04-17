@@ -502,7 +502,7 @@ export function addSolkompassLayers(map: Map) {
       },
     })
   }
-  // Shadow line (anchor -> shadow tip) — dark gray to read as shadow
+  // Shadow band (anchor -> shadow tip) — wide, semitransparent
   if (!map.getLayer("solkompass-sun-ray")) {
     map.addLayer({
       id: "solkompass-sun-ray",
@@ -511,13 +511,36 @@ export function addSolkompassLayers(map: Map) {
       filter: ["==", ["get", "kind"], "shadow"],
       paint: {
         "line-color": "#404040",
-        "line-width": 2,
-        "line-opacity": 0.6,
-        "line-dasharray": [3, 2],
+        "line-width": 64,
+        "line-opacity": 0.3,
+      },
+      layout: {
+        "line-cap": "round",
       },
     })
   }
-  // Sun icon (placed in SUN direction, not on the arc)
+  // Shadow label
+  if (!map.getLayer("solkompass-shadow-label")) {
+    map.addLayer({
+      id: "solkompass-shadow-label",
+      type: "symbol",
+      source: "solkompass-sun",
+      filter: ["==", ["get", "kind"], "shadow"],
+      layout: {
+        "symbol-placement": "line-center",
+        "text-field": "SKYGGE",
+        "text-size": 12,
+        "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+        "text-letter-spacing": 0.2,
+        "text-allow-overlap": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+        "text-opacity": 0.8,
+      },
+    })
+  }
+  // Sun icon (placed in SUN direction — big and visible)
   if (!map.getLayer("solkompass-sun-icon")) {
     map.addLayer({
       id: "solkompass-sun-icon",
@@ -525,10 +548,25 @@ export function addSolkompassLayers(map: Map) {
       source: "solkompass-sun",
       filter: ["==", ["get", "kind"], "sun"],
       paint: {
-        "circle-radius": 10,
+        "circle-radius": 32,
         "circle-color": "#fbbf24",
         "circle-stroke-color": "#d97706",
-        "circle-stroke-width": 2.5,
+        "circle-stroke-width": 3,
+        "circle-opacity": 0.85,
+      },
+    })
+  }
+  // Sun label on the icon
+  if (!map.getLayer("solkompass-sun-label")) {
+    map.addLayer({
+      id: "solkompass-sun-label",
+      type: "symbol",
+      source: "solkompass-sun",
+      filter: ["==", ["get", "kind"], "sun"],
+      layout: {
+        "text-field": "☀",
+        "text-size": 28,
+        "text-allow-overlap": true,
       },
     })
   }
