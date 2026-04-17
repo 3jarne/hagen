@@ -4,6 +4,87 @@ import type { Position } from "geojson"
 const STICK_HEIGHT_M = 3
 const MAX_SHADOW_M = 30
 
+/**
+ * The garden's fixed timezone. Hardcoded for Norway.
+ * All user-facing date/time UI and calculations use this zone,
+ * regardless of the browser's timezone.
+ */
+export const GARDEN_TZ = "Europe/Oslo"
+
+/**
+ * Decompose a Date into wall-clock parts in the garden timezone.
+ */
+export function toOsloParts(date: Date): {
+  year: number
+  month: number // 0-indexed
+  day: number
+  hours: number
+  minutes: number
+} {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: GARDEN_TZ,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(date)
+  const get = (t: string) => Number(parts.find((p) => p.type === t)!.value)
+  let hour = get("hour")
+  if (hour === 24) hour = 0 // Intl can return 24 for midnight
+  return {
+    year: get("year"),
+    month: get("month") - 1,
+    day: get("day"),
+    hours: hour,
+    minutes: get("minute"),
+  }
+}
+
+/**
+ * Construct a Date from wall-clock values in the garden timezone.
+ * Returns a Date whose UTC instant corresponds to that Oslo wall-clock moment.
+ */
+export function fromOsloWallClock(
+  year: number,
+  month: number, // 0-indexed
+  day: number,
+  hours: number,
+  minutes: number,
+): Date {
+  // Guess: assume wall clock is UTC, then compute offset and correct.
+  const guessMs = Date.UTC(year, month, day, hours, minutes)
+  const guess = new Date(guessMs)
+  const osloForGuess = toOsloParts(guess)
+  // Compute what the guess "looks like" in Oslo
+  const osloMs = Date.UTC(
+    osloForGuess.year,
+    osloForGuess.month,
+    osloForGuess.day,
+    osloForGuess.hours,
+    osloForGuess.minutes,
+  )
+  // offsetMs = osloMs - guessMs = how much Oslo is ahead of UTC at this moment
+  const offsetMs = osloMs - guessMs
+  // We want UTC such that osloParts(utc) matches input, i.e. utc + offset = input.
+  // So utc = input - offset.
+  return new Date(guessMs - offsetMs)
+}
+
+/**
+ * Format a Date as "HH:MM" in the garden timezone.
+ */
+export function formatOsloTime(date: Date): string {
+  if (!isFinite(date.getTime())) return "—"
+  return new Intl.DateTimeFormat("nb-NO", {
+    timeZone: GARDEN_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date)
+}
+
 export interface SunInfo {
   /** Compass azimuth in degrees (0 = N, 90 = E, 180 = S, 270 = W) */
   azimuthDeg: number

@@ -453,45 +453,82 @@ export function addSolkompassLayers(map: Map) {
       },
     })
   }
-  // Hour-marker dots + anchor dot
+  // Hour-marker dots on the arc
   if (!map.getLayer("solkompass-arc-points")) {
     map.addLayer({
       id: "solkompass-arc-points",
       type: "circle",
       source: "solkompass-arc",
-      filter: ["==", "$type", "Point"],
+      filter: ["==", ["get", "kind"], "hour"],
       paint: {
         "circle-radius": 3,
         "circle-color": "#eab308",
       },
     })
   }
-  // Current shadow ray (anchor -> sun tip)
+  // Anchor dot (the "stick" base) — dark, distinct from hour markers
+  if (!map.getLayer("solkompass-anchor")) {
+    map.addLayer({
+      id: "solkompass-anchor",
+      type: "circle",
+      source: "solkompass-arc",
+      filter: ["==", ["get", "kind"], "anchor"],
+      paint: {
+        "circle-radius": 4,
+        "circle-color": "#171717",
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1.5,
+      },
+    })
+  }
+  // North label "N"
+  if (!map.getLayer("solkompass-north")) {
+    map.addLayer({
+      id: "solkompass-north",
+      type: "symbol",
+      source: "solkompass-arc",
+      filter: ["==", ["get", "kind"], "north"],
+      layout: {
+        "text-field": ["get", "label"],
+        "text-size": 13,
+        "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+        "text-anchor": "center",
+        "text-allow-overlap": true,
+      },
+      paint: {
+        "text-color": "#dc2626",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 2,
+      },
+    })
+  }
+  // Shadow line (anchor -> shadow tip) — dark gray to read as shadow
   if (!map.getLayer("solkompass-sun-ray")) {
     map.addLayer({
       id: "solkompass-sun-ray",
       type: "line",
       source: "solkompass-sun",
-      filter: ["==", "$type", "LineString"],
+      filter: ["==", ["get", "kind"], "shadow"],
       paint: {
-        "line-color": "#f59e0b",
-        "line-width": 1.5,
+        "line-color": "#404040",
+        "line-width": 2,
+        "line-opacity": 0.6,
         "line-dasharray": [3, 2],
       },
     })
   }
-  // Sun icon at current tip
+  // Sun icon (placed in SUN direction, not on the arc)
   if (!map.getLayer("solkompass-sun-icon")) {
     map.addLayer({
       id: "solkompass-sun-icon",
       type: "circle",
       source: "solkompass-sun",
-      filter: ["==", "$type", "Point"],
+      filter: ["==", ["get", "kind"], "sun"],
       paint: {
-        "circle-radius": 6,
+        "circle-radius": 10,
         "circle-color": "#fbbf24",
         "circle-stroke-color": "#d97706",
-        "circle-stroke-width": 2,
+        "circle-stroke-width": 2.5,
       },
     })
   }

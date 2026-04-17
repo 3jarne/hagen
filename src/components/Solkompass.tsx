@@ -2,7 +2,12 @@ import { useMemo } from "react"
 import { Sun, Sunrise, Sunset, Clock } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
-import { getSunInfo } from "@/lib/sun-calc"
+import {
+  getSunInfo,
+  toOsloParts,
+  fromOsloWallClock,
+  formatOsloTime,
+} from "@/lib/sun-calc"
 
 interface Props {
   lat: number
@@ -15,26 +20,22 @@ function pad(n: number): string {
   return String(n).padStart(2, "0")
 }
 
-function formatLocalDate(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function formatTime(d: Date): string {
-  if (!isFinite(d.getTime())) return "—"
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+function formatLocalDateForInput(d: Date): string {
+  const p = toOsloParts(d)
+  return `${p.year}-${pad(p.month + 1)}-${pad(p.day)}`
 }
 
 export function Solkompass({ lat, lng, date, onDateChange }: Props) {
   const info = useMemo(() => getSunInfo(date, lat, lng), [date, lat, lng])
+  const parts = useMemo(() => toOsloParts(date), [date])
 
-  const timeValue = date.getHours() + date.getMinutes() / 60
+  const timeValue = parts.hours + parts.minutes / 60
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const parts = e.target.value.split("-").map(Number)
-    if (parts.length !== 3 || parts.some((n) => !isFinite(n))) return
-    const [y, m, d] = parts
-    const nd = new Date(date)
-    nd.setFullYear(y, m - 1, d)
+    const pieces = e.target.value.split("-").map(Number)
+    if (pieces.length !== 3 || pieces.some((n) => !isFinite(n))) return
+    const [y, m, d] = pieces
+    const nd = fromOsloWallClock(y, m - 1, d, parts.hours, parts.minutes)
     onDateChange(nd)
   }
 
@@ -42,9 +43,7 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
     const clamped = Math.max(0, Math.min(value, 23.75))
     const h = Math.floor(clamped)
     const m = Math.round((clamped - h) * 60)
-    const nd = new Date(date)
-    nd.setFullYear(date.getFullYear(), date.getMonth(), date.getDate())
-    nd.setHours(h, m, 0, 0)
+    const nd = fromOsloWallClock(parts.year, parts.month, parts.day, h, m)
     onDateChange(nd)
   }
 
@@ -53,17 +52,22 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
   }
 
   return (
-    <div className="absolute top-14 right-4 z-40 bg-white dark:bg-neutral-900 rounded-lg shadow-xl p-3 w-56 text-sm space-y-3 border border-neutral-200 dark:border-neutral-800">
+    <div className="absolute top-14 right-4 z-40 bg-white dark:bg-neutral-900 rounded-lg shadow-xl p-3 w-60 text-sm space-y-3 border border-neutral-200 dark:border-neutral-800">
       <div className="flex items-center gap-2 font-semibold">
         <Sun className="h-4 w-4 text-amber-500" />
         <span>Solkompass</span>
       </div>
 
+      <p className="text-xs text-muted-foreground leading-tight">
+        ☀ viser solretning. Stiplet linje er skyggen fra pinnen.
+        Kurven er skyggens vei gjennom dagen.
+      </p>
+
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground">Dato</label>
         <input
           type="date"
-          value={formatLocalDate(date)}
+          value={formatLocalDateForInput(date)}
           onChange={handleDateChange}
           className="w-full px-2 py-1 rounded border border-neutral-300 dark:border-neutral-700 bg-transparent text-sm"
         />
@@ -76,7 +80,7 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
             Tid
           </label>
           <span className="text-xs font-mono">
-            {pad(date.getHours())}:{pad(date.getMinutes())}
+            {pad(parts.hours)}:{pad(parts.minutes)}
             {!info.isAboveHorizon && (
               <span className="ml-1 text-muted-foreground">🌙 Natt</span>
             )}
@@ -102,13 +106,13 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
       <div className="space-y-1 text-xs text-muted-foreground font-mono">
         <div className="flex items-center gap-2">
           <Sunrise className="h-3 w-3 text-amber-500" />
-          <span>{isFinite(info.sunrise.getTime()) ? formatTime(info.sunrise) : "—"}</span>
+          <span>{formatOsloTime(info.sunrise)}</span>
           <Sun className="h-3 w-3 ml-2 text-amber-500" />
-          <span>{isFinite(info.solarNoon.getTime()) ? formatTime(info.solarNoon) : "—"}</span>
+          <span>{formatOsloTime(info.solarNoon)}</span>
         </div>
         <div className="flex items-center gap-2">
           <Sunset className="h-3 w-3 text-amber-600" />
-          <span>{isFinite(info.sunset.getTime()) ? formatTime(info.sunset) : "—"}</span>
+          <span>{formatOsloTime(info.sunset)}</span>
         </div>
       </div>
     </div>

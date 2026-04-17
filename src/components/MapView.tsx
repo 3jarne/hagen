@@ -507,41 +507,59 @@ export function MapView({
       const { arc, hourMarkers } = buildSundialArc(date, lat, lng, anchor)
       const info = getSunInfo(date, lat, lng)
 
+      // Helper: offset a lng/lat position by distance in meters at a compass bearing.
+      const offsetMeters = (from: Position, bearingDeg: number, distM: number): Position => {
+        const bearingRad = (bearingDeg * Math.PI) / 180
+        const dLat = (distM * Math.cos(bearingRad)) / 111320
+        const dLng = (distM * Math.sin(bearingRad)) / (111320 * Math.cos((from[1] * Math.PI) / 180))
+        return [from[0] + dLng, from[1] + dLat]
+      }
+
       const arcFeatures: GeoJSON.Feature[] = []
       if (arc.length >= 2) {
         arcFeatures.push({
           type: "Feature",
           geometry: { type: "LineString", coordinates: arc },
-          properties: {},
+          properties: { kind: "arc" },
         })
       }
       for (const pt of hourMarkers) {
         arcFeatures.push({
           type: "Feature",
           geometry: { type: "Point", coordinates: pt },
-          properties: {},
+          properties: { kind: "hour" },
         })
       }
       // Anchor dot
       arcFeatures.push({
         type: "Feature",
         geometry: { type: "Point", coordinates: anchor },
-        properties: { anchor: true },
+        properties: { kind: "anchor" },
+      })
+      // "N" label 5m north of anchor
+      arcFeatures.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: offsetMeters(anchor, 0, 5) },
+        properties: { kind: "north", label: "N" },
       })
       arcSource.setData({ type: "FeatureCollection", features: arcFeatures })
 
       const sunFeatures: GeoJSON.Feature[] = []
       if (info.isAboveHorizon) {
-        const tip = projectShadowTip(anchor, info.azimuthDeg, info.altitudeRad)
+        // Shadow line from anchor to shadow tip (opposite of sun)
+        const shadowTip = projectShadowTip(anchor, info.azimuthDeg, info.altitudeRad)
         sunFeatures.push({
           type: "Feature",
-          geometry: { type: "LineString", coordinates: [anchor, tip] },
-          properties: {},
+          geometry: { type: "LineString", coordinates: [anchor, shadowTip] },
+          properties: { kind: "shadow" },
         })
+        // Sun icon in the SUN direction at a fixed distance (intuitive)
+        const SUN_ICON_DIST_M = 8
+        const sunPos = offsetMeters(anchor, info.azimuthDeg, SUN_ICON_DIST_M)
         sunFeatures.push({
           type: "Feature",
-          geometry: { type: "Point", coordinates: tip },
-          properties: {},
+          geometry: { type: "Point", coordinates: sunPos },
+          properties: { kind: "sun" },
         })
       }
       sunSource.setData({ type: "FeatureCollection", features: sunFeatures })
