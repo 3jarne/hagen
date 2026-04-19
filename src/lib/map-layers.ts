@@ -42,8 +42,9 @@ export function addKartverketLayer(
 /**
  * Add area labels source + layer (shows area text on polygons).
  */
-export function addAreaLabelsLayer(map: Map) {
+export function addAreaLabelsLayer(map: Map, opts?: { visible?: boolean }) {
   if (map.getSource("area-labels")) return
+  const visible = opts?.visible ?? false
 
   map.addSource("area-labels", {
     type: "geojson",
@@ -59,6 +60,7 @@ export function addAreaLabelsLayer(map: Map) {
       "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
       "text-allow-overlap": true,
       "text-offset": [0, 1.8],
+      visibility: visible ? "visible" : "none",
     },
     paint: {
       "text-color": "#ffffff",

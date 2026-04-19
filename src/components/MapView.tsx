@@ -133,6 +133,7 @@ export function MapView({
   const activeGardenElementRef = useRef(activeGardenElement)
   const solkompassVisibleRef = useRef(solkompassVisible)
   const solkompassDateRef = useRef(solkompassDate)
+  const areaLabelsVisibleRef = useRef(areaLabelsVisible)
 
   useEffect(() => {
     activeGardenElementRef.current = activeGardenElement
@@ -143,6 +144,9 @@ export function MapView({
   useEffect(() => {
     solkompassDateRef.current = solkompassDate
   }, [solkompassDate])
+  useEffect(() => {
+    areaLabelsVisibleRef.current = areaLabelsVisible
+  }, [areaLabelsVisible])
 
   useEffect(() => {
     shapeDefaultsRef.current = shapeDefaults
@@ -1003,7 +1007,7 @@ export function MapView({
       // Add all custom layers
       addKartverketLayer(map)
       addUserPlotLayer(map)
-      addAreaLabelsLayer(map)
+      addAreaLabelsLayer(map, { visible: areaLabelsVisible })
       addTextLabelsLayers(map)
       addLineFeatureLayers(map)
       addMeasurementLayers(map)
@@ -1204,11 +1208,10 @@ export function MapView({
     // Track selection and update properties panel
     map.on("draw.selectionchange", (e: { features: GeoJSON.Feature[] }) => {
       if (map.getLayer("area-labels")) {
-        map.setLayoutProperty(
-          "area-labels",
-          "visibility",
-          e.features.length > 0 ? "none" : "visible"
-        )
+        // Hide labels while a feature is selected; otherwise respect user's toggle
+        const visibility =
+          e.features.length > 0 ? "none" : areaLabelsVisibleRef.current ? "visible" : "none"
+        map.setLayoutProperty("area-labels", "visibility", visibility)
       }
       // Update panel with selected feature properties
       if (e.features.length > 0) {
