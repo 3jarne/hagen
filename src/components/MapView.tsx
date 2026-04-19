@@ -57,7 +57,7 @@ interface MapViewProps {
   onSelectedLineChange: (props: LineProperties | null) => void
   onPanelModeChange: (mode: PanelMode) => void
   onEditingSelectionChange: (editing: boolean) => void
-  onSelectedGardenChange: (type: GardenElementType | null, name: string | null, diameter: number | null, width: number | null) => void
+  onSelectedGardenChange: (type: GardenElementType | null, name: string | null, diameter: number | null, width: number | null, color: string | null) => void
   exportJSONRef: React.MutableRefObject<(() => void) | null>
   exportPNGRef: React.MutableRefObject<(() => void) | null>
   mapStyle: MapStyle
@@ -65,6 +65,8 @@ interface MapViewProps {
   kartverketOpacity: number
   selectedGardenDiameter: number | null
   selectedGardenWidth: number | null
+  selectedGardenName: string | null
+  selectedGardenColor: string | null
   areaLabelsVisible: boolean
   solkompassVisible: boolean
   solkompassDate: Date
@@ -108,6 +110,8 @@ export function MapView({
   kartverketOpacity,
   selectedGardenDiameter,
   selectedGardenWidth,
+  selectedGardenName,
+  selectedGardenColor,
   areaLabelsVisible,
   solkompassVisible,
   solkompassDate,
@@ -1223,6 +1227,7 @@ export function MapView({
             props.gardenName || null,
             gProps.diameter ?? null,
             gProps.widthMeters ?? null,
+            props.fillColor || null,
           )
         } else {
           // Raw feature selected
@@ -1235,7 +1240,7 @@ export function MapView({
             strokeWidth: props.strokeWidth ?? 2,
             zone: props.zone || "Lawn",
           })
-          onSelectedGardenChange(null, null, null, null)
+          onSelectedGardenChange(null, null, null, null, null)
         }
       } else if (
         activeToolRef.current === "select"
@@ -1956,6 +1961,7 @@ export function MapView({
           props.gardenName || null,
           gProps.diameter,
           gProps.widthMeters ?? null,
+          props.fillColor || null,
         )
       } else {
         // Scale polygon uniformly around center
@@ -2261,6 +2267,11 @@ export function MapView({
     syncGardenOverlays(map, draw)
     syncScaleHandles(map, draw)
     syncObjectShadows(map, draw, solkompassVisibleRef.current, solkompassDateRef.current)
+    historyRef.current?.push({
+      drawFeatures: draw.getAll().features,
+      textFeatures: [...textFeaturesRef.current],
+      lineFeatures: [...lineFeaturesRef.current],
+    })
     saveToStorage()
   }, [selectedGardenDiameter, updateAreaLabels, syncGardenOverlays, syncScaleHandles, syncObjectShadows, saveToStorage])
 
@@ -2296,8 +2307,63 @@ export function MapView({
     updateAreaLabels(map, draw)
     syncScaleHandles(map, draw)
     syncObjectShadows(map, draw, solkompassVisibleRef.current, solkompassDateRef.current)
+    historyRef.current?.push({
+      drawFeatures: draw.getAll().features,
+      textFeatures: [...textFeaturesRef.current],
+      lineFeatures: [...lineFeaturesRef.current],
+    })
     saveToStorage()
   }, [selectedGardenWidth, updateAreaLabels, syncScaleHandles, syncObjectShadows, saveToStorage])
+
+  // Apply color change to selected garden feature
+  useEffect(() => {
+    if (selectedGardenColor === null) return
+    const draw = drawRef.current
+    const map = mapRef.current
+    if (!draw || !map) return
+    const selectedIds = draw.getSelectedIds()
+    if (selectedIds.length === 0) return
+    let changed = false
+    for (const id of selectedIds) {
+      const feature = draw.get(id)
+      if (!feature) continue
+      const props = feature.properties || {}
+      if (props.featureType !== "garden") continue
+      if (props.fillColor === selectedGardenColor && props.strokeColor === selectedGardenColor) continue
+      feature.properties = {
+        ...props,
+        fillColor: selectedGardenColor,
+        strokeColor: selectedGardenColor,
+      }
+      draw.add(feature)
+      changed = true
+    }
+    if (changed) {
+      syncGardenOverlays(map, draw)
+      saveToStorage()
+    }
+  }, [selectedGardenColor, syncGardenOverlays, saveToStorage])
+
+  // Apply name change to selected garden feature
+  useEffect(() => {
+    const draw = drawRef.current
+    if (!draw) return
+    const selectedIds = draw.getSelectedIds()
+    if (selectedIds.length === 0) return
+    let changed = false
+    for (const id of selectedIds) {
+      const feature = draw.get(id)
+      if (!feature) continue
+      const props = feature.properties || {}
+      if (props.featureType !== "garden") continue
+      const newName = selectedGardenName ?? ""
+      if ((props.gardenName ?? "") === newName) continue
+      feature.properties = { ...props, gardenName: newName }
+      draw.add(feature)
+      changed = true
+    }
+    if (changed) saveToStorage()
+  }, [selectedGardenName, saveToStorage])
 
   // Sync solkompass + object shadows on date/visibility changes
   useEffect(() => {

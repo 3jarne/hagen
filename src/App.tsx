@@ -41,7 +41,7 @@ function App() {
   const [mapStyle, setMapStyle] = useState<MapStyle>("satellite")
   const [kartverketVisible, setKartverketVisible] = useState(true)
   const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
-  const [areaLabelsVisible, setAreaLabelsVisible] = useState(true)
+  const [areaLabelsVisible, setAreaLabelsVisible] = useState(false)
   const [solkompassVisible, setSolkompassVisible] = useState(false)
   const [solkompassDate, setSolkompassDate] = useState<Date>(() => new Date())
 
@@ -71,6 +71,7 @@ function App() {
   const [selectedGardenName, setSelectedGardenName] = useState<string | null>(null)
   const [selectedGardenDiameter, setSelectedGardenDiameter] = useState<number | null>(null)
   const [selectedGardenWidth, setSelectedGardenWidth] = useState<number | null>(null)
+  const [selectedGardenColor, setSelectedGardenColor] = useState<string | null>(null)
 
   // Auto-open settings on first visit if no token
   useEffect(() => {
@@ -119,11 +120,12 @@ function App() {
   }, [])
 
   const handleSelectedGardenChange = useCallback(
-    (type: GardenElementType | null, name: string | null, diameter: number | null, width: number | null) => {
+    (type: GardenElementType | null, name: string | null, diameter: number | null, width: number | null, color: string | null) => {
       setSelectedGardenType(type)
       setSelectedGardenName(name)
       setSelectedGardenDiameter(diameter)
       setSelectedGardenWidth(width)
+      setSelectedGardenColor(color)
     },
     []
   )
@@ -138,6 +140,7 @@ function App() {
       setSelectedGardenName(null)
       setSelectedGardenDiameter(null)
       setSelectedGardenWidth(null)
+      setSelectedGardenColor(null)
     }
   }, [])
 
@@ -260,6 +263,8 @@ function App() {
         kartverketOpacity={kartverketOpacity}
         selectedGardenDiameter={selectedGardenDiameter}
         selectedGardenWidth={selectedGardenWidth}
+        selectedGardenName={selectedGardenName}
+        selectedGardenColor={selectedGardenColor}
         areaLabelsVisible={areaLabelsVisible}
         solkompassVisible={solkompassVisible}
         solkompassDate={solkompassDate}
@@ -287,7 +292,7 @@ function App() {
         gardenDiameter={selectedGardenDiameter}
         gardenWidth={selectedGardenWidth}
         onGardenFeatureNameChange={setSelectedGardenName}
-        onGardenColorChange={() => {}}
+        onGardenColorChange={setSelectedGardenColor}
         onGardenDiameterChange={setSelectedGardenDiameter}
         onGardenWidthChange={setSelectedGardenWidth}
         onShapeChange={handleShapeChange}
