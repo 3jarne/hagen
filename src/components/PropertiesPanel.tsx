@@ -29,6 +29,7 @@ interface PropertiesPanelProps {
   gardenFeatureName: string | null
   gardenDiameter: number | null
   gardenWidth: number | null
+  gardenColor: string | null
   onGardenFeatureNameChange: (name: string) => void
   onGardenColorChange: (color: string) => void
   onGardenDiameterChange: (diameter: number) => void
@@ -73,6 +74,7 @@ export function PropertiesPanel({
   gardenFeatureName,
   gardenDiameter,
   gardenWidth,
+  gardenColor,
   onGardenFeatureNameChange,
   onGardenColorChange,
   onGardenDiameterChange,
@@ -167,12 +169,12 @@ export function PropertiesPanel({
                   Fyll
                 </Label>
                 <ColorSwatch
-                  color={gardenEl.style.fillColor}
+                  color={gardenColor ?? gardenEl.style.fillColor}
                   onChange={onGardenColorChange}
                   label="Fill color"
                 />
                 <span className="text-xs text-muted-foreground font-mono">
-                  {gardenEl.style.fillColor}
+                  {gardenColor ?? gardenEl.style.fillColor}
                 </span>
               </div>
             </div>

@@ -291,6 +291,7 @@ function App() {
         gardenFeatureName={selectedGardenName}
         gardenDiameter={selectedGardenDiameter}
         gardenWidth={selectedGardenWidth}
+        gardenColor={selectedGardenColor}
         onGardenFeatureNameChange={setSelectedGardenName}
         onGardenColorChange={setSelectedGardenColor}
         onGardenDiameterChange={setSelectedGardenDiameter}
