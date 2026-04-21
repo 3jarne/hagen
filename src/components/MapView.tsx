@@ -3,8 +3,7 @@ import mapboxgl from "mapbox-gl"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
 import "mapbox-gl/dist/mapbox-gl.css"
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css"
-import { CONFIG } from "@/config"
-import { hasValidToken, loadSettings } from "@/components/SettingsDialog"
+import { CONFIG, hasMapboxToken } from "@/config"
 import { drawStyles } from "@/lib/draw-styles"
 import DrawCircleMode, { createCirclePolygon, generateCanopyLines } from "@/lib/draw-circle-mode"
 import { bufferPolyline, polylineLengthMeters } from "@/lib/polyline-buffer"
@@ -20,7 +19,7 @@ import type { Position, Feature, Polygon } from "geojson"
 import type { ShapeProperties, TextProperties, LineProperties } from "@/lib/zone-defaults"
 import { distanceMeters, formatDistance } from "@/lib/measurement"
 import { simplify } from "@/lib/simplify"
-import type { PanelMode, MapStyle } from "@/App"
+import type { PanelMode, MapStyle } from "@/pages/MapPage"
 import {
   addKartverketLayer,
   addAreaLabelsLayer,
@@ -225,34 +224,6 @@ export function MapView({
   useEffect(() => {
     saveToStorageRef.current = saveToStorage
   }, [saveToStorage])
-
-  const addUserPlotLayer = useCallback(async (map: mapboxgl.Map) => {
-    if (CONFIG.gnr === 0 && CONFIG.bnr === 0) return
-    try {
-      const url = `https://wfs.geonorge.no/skwfs/wfs.matrikkelkart?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=Eiendomskart:Teig&CQL_FILTER=gaardsnummer=${CONFIG.gnr}%20AND%20bruksnummer=${CONFIG.bnr}&SRSNAME=EPSG:4326&outputFormat=application/json`
-      const response = await fetch(url)
-      if (!response.ok) return
-      const data = (await response.json()) as GeoJSON.FeatureCollection
-      if (!data.features || data.features.length === 0) return
-      if (!map.getSource("user-plot")) {
-        map.addSource("user-plot", { type: "geojson", data })
-        map.addLayer({
-          id: "user-plot-fill",
-          type: "fill",
-          source: "user-plot",
-          paint: { "fill-color": "#f59e0b", "fill-opacity": 0.15 },
-        })
-        map.addLayer({
-          id: "user-plot-line",
-          type: "line",
-          source: "user-plot",
-          paint: { "line-color": "#f59e0b", "line-width": 2 },
-        })
-      }
-    } catch {
-      // Silent fail
-    }
-  }, [])
 
   /** Update bounding box around selected text features */
   const updateTextSelectionBbox = useCallback((map: mapboxgl.Map) => {
@@ -951,7 +922,7 @@ export function MapView({
   // Main map setup
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
-    if (!hasValidToken()) return
+    if (!hasMapboxToken()) return
 
     mapboxgl.accessToken = CONFIG.mapboxToken
 
@@ -1006,7 +977,6 @@ export function MapView({
 
       // Add all custom layers
       addKartverketLayer(map)
-      addUserPlotLayer(map)
       addAreaLabelsLayer(map, { visible: areaLabelsVisible })
       addTextLabelsLayers(map)
       addLineFeatureLayers(map)
@@ -2002,25 +1972,7 @@ export function MapView({
       saveToStorageRef.current?.()
     })
 
-    // GPS geolocation
-    const settings = loadSettings()
-    const hasCustomCoords =
-      settings.lat !== 60.41601 || settings.lng !== 11.05218
-    if (
-      !hasCustomCoords &&
-      navigator.geolocation &&
-      window.location.protocol === "https:"
-    ) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          map.flyTo({
-            center: [position.coords.longitude, position.coords.latitude],
-            zoom: CONFIG.defaultZoom,
-          })
-        },
-        () => {}
-      )
-    }
+    // Map center is set per-project from Fase 3 onwards.
 
     return () => {
       popup.remove()
@@ -2037,7 +1989,6 @@ export function MapView({
     onEditingSelectionChange,
     onSelectedShapeChange,
     onSelectedTextChange,
-    addUserPlotLayer,
     updateAreaLabels,
     syncTextLabels,
     syncLineFeatures,
@@ -2435,7 +2386,6 @@ export function MapView({
         kartverketOpacity,
         kartverketVisible,
       })
-      addUserPlotLayer(map)
 
       // Restore draw features
       if (draw) {
@@ -2761,13 +2711,13 @@ export function MapView({
     return () => window.removeEventListener("click", handleClick)
   }, [contextMenu])
 
-  if (!hasValidToken()) {
+  if (!hasMapboxToken()) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-muted">
         <div className="rounded-lg border bg-card p-6 shadow-lg max-w-md text-center">
           <p className="text-sm text-card-foreground">
-            Open <strong>Settings</strong> (gear icon in the top bar) to add
-            your Mapbox token and configure your property location.
+            Mapbox-token mangler. Sett <code>VITE_MAPBOX_TOKEN</code> i
+            <code>.env</code> og start dev-serveren på nytt.
           </p>
         </div>
       </div>

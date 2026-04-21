@@ -30,6 +30,13 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+        env:
+          VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      # SPA fallback for GitHub Pages deep-links under /hagen/
+      - run: cp dist/index.html dist/404.html
 
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3

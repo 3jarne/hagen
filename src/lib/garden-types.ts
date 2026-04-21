@@ -1,3 +1,18 @@
+import type { LucideIcon } from "lucide-react"
+import {
+  TentTree,
+  Shrub,
+  Fence,
+  Flower2,
+  Sprout,
+  Carrot,
+  Droplets,
+  Footprints,
+  Armchair,
+  House,
+  Leaf,
+  Hammer,
+} from "lucide-react"
 import type { Tool } from "@/components/FloatingToolbar"
 
 export type GardenCategory = "planter" | "vann_sti" | "konstruksjon"
@@ -26,7 +41,7 @@ export interface GardenElementStyle {
 
 export interface GardenElement {
   type: GardenElementType
-  emoji: string
+  icon: LucideIcon
   label: string
   category: GardenCategory
   drawMode: GardenDrawMode
@@ -41,7 +56,7 @@ export interface GardenElement {
 
 export interface GardenCategoryDef {
   id: GardenCategory
-  emoji: string
+  icon: LucideIcon
   label: string
   elements: GardenElement[]
 }
@@ -70,22 +85,22 @@ function makeStyle(
 }
 
 export const GARDEN_ELEMENTS: Record<GardenElementType, GardenElement> = {
-  tre:            { type: "tre",            emoji: "🌳", label: "Tre",           category: "planter",       drawMode: "circle",   style: makeStyle("#166534") },
-  busk:           { type: "busk",           emoji: "🌿", label: "Busk",          category: "planter",       drawMode: "circle",   style: makeStyle("#22c55e") },
-  hekk:           { type: "hekk",           emoji: "🌿", label: "Hekk",          category: "planter",       drawMode: "polyline", style: makeStyle("#166534"), defaultWidth: 0.5, minWidth: 0.2, maxWidth: 2.0 },
-  bed:            { type: "bed",            emoji: "🌸", label: "Bed",           category: "planter",       drawMode: "polygon",  style: makeStyle("#f9a8d4") },
-  gressplen:      { type: "gressplen",      emoji: "🌱", label: "Gressplen",     category: "planter",       drawMode: "polygon",  style: makeStyle("#86efac") },
-  groennsakhage:  { type: "groennsakhage",  emoji: "🥕", label: "Grønnsakhage",  category: "planter",       drawMode: "polygon",  style: makeStyle("#a3e635") },
-  dam:            { type: "dam",            emoji: "💧", label: "Dam",           category: "vann_sti",      drawMode: "polygon",  style: makeStyle("#38bdf8") },
-  sti:            { type: "sti",            emoji: "🪨", label: "Sti",           category: "vann_sti",      drawMode: "polyline", style: makeStyle("#d6d3d1"), defaultWidth: 1.0, minWidth: 0.3, maxWidth: 3.0 },
-  terrasse:       { type: "terrasse",       emoji: "🪵", label: "Terrasse",      category: "konstruksjon",  drawMode: "polygon",  style: makeStyle("#d4a574", 0.6) },
-  bygning:        { type: "bygning",        emoji: "🏠", label: "Bygning",       category: "konstruksjon",  drawMode: "polygon",  style: makeStyle("#d4b896", 0.6) },
+  tre:            { type: "tre",            icon: TentTree,   label: "Tre",           category: "planter",       drawMode: "circle",   style: makeStyle("#166534") },
+  busk:           { type: "busk",           icon: Shrub,      label: "Busk",          category: "planter",       drawMode: "circle",   style: makeStyle("#22c55e") },
+  hekk:           { type: "hekk",           icon: Fence,      label: "Hekk",          category: "planter",       drawMode: "polyline", style: makeStyle("#166534"), defaultWidth: 0.5, minWidth: 0.2, maxWidth: 2.0 },
+  bed:            { type: "bed",            icon: Flower2,    label: "Bed",           category: "planter",       drawMode: "polygon",  style: makeStyle("#f9a8d4") },
+  gressplen:      { type: "gressplen",      icon: Sprout,     label: "Gressplen",     category: "planter",       drawMode: "polygon",  style: makeStyle("#86efac") },
+  groennsakhage:  { type: "groennsakhage",  icon: Carrot,     label: "Grønnsakhage",  category: "planter",       drawMode: "polygon",  style: makeStyle("#a3e635") },
+  dam:            { type: "dam",            icon: Droplets,   label: "Dam",           category: "vann_sti",      drawMode: "polygon",  style: makeStyle("#38bdf8") },
+  sti:            { type: "sti",            icon: Footprints, label: "Sti",           category: "vann_sti",      drawMode: "polyline", style: makeStyle("#d6d3d1"), defaultWidth: 1.0, minWidth: 0.3, maxWidth: 3.0 },
+  terrasse:       { type: "terrasse",       icon: Armchair,   label: "Terrasse",      category: "konstruksjon",  drawMode: "polygon",  style: makeStyle("#d4a574", 0.6) },
+  bygning:        { type: "bygning",        icon: House,      label: "Bygning",       category: "konstruksjon",  drawMode: "polygon",  style: makeStyle("#d4b896", 0.6) },
 }
 
 export const GARDEN_CATEGORIES: GardenCategoryDef[] = [
   {
     id: "planter",
-    emoji: "🌿",
+    icon: Leaf,
     label: "Planter",
     elements: [
       GARDEN_ELEMENTS.tre,
@@ -98,7 +113,7 @@ export const GARDEN_CATEGORIES: GardenCategoryDef[] = [
   },
   {
     id: "vann_sti",
-    emoji: "💧",
+    icon: Droplets,
     label: "Vann & Sti",
     elements: [
       GARDEN_ELEMENTS.dam,
@@ -107,7 +122,7 @@ export const GARDEN_CATEGORIES: GardenCategoryDef[] = [
   },
   {
     id: "konstruksjon",
-    emoji: "🏗",
+    icon: Hammer,
     label: "Konstruksjon",
     elements: [
       GARDEN_ELEMENTS.terrasse,

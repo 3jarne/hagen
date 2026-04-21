@@ -1,4 +1,4 @@
-import { Undo2, Redo2, Search, Settings, Sun } from "lucide-react"
+import { Undo2, Redo2, Search, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import {
@@ -13,13 +13,12 @@ import {
   MenubarRadioGroup,
   MenubarRadioItem,
 } from "@/components/ui/menubar"
-import type { MapStyle } from "@/App"
+import type { MapStyle } from "@/pages/MapPage"
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog"
 import { useState } from "react"
 
 interface TopBarProps {
   zoomLevel: number
-  onOpenSettings: () => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -43,7 +42,6 @@ interface TopBarProps {
 
 export function TopBar({
   zoomLevel,
-  onOpenSettings,
   canUndo,
   canRedo,
   onUndo,
@@ -202,19 +200,11 @@ export function TopBar({
       <Button
         variant={solkompassVisible ? "secondary" : "ghost"}
         size="icon"
-        className="h-8 w-8"
+        className="h-8 w-8 mr-2"
         onClick={() => onSolkompassVisibleChange(!solkompassVisible)}
         title="Solkompass"
       >
         <Sun className="h-4 w-4 text-amber-500" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 mr-2"
-        onClick={onOpenSettings}
-      >
-        <Settings className="h-4 w-4" />
       </Button>
       <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
