@@ -96,7 +96,7 @@ export function PropertiesPanel({
           <>
             {/* Garden element header */}
             <div className="flex items-center gap-2">
-              <span className="text-2xl">{gardenEl.emoji}</span>
+              <gardenEl.icon className="h-6 w-6 text-muted-foreground" />
               <h3 className="text-sm font-semibold">{gardenEl.label}</h3>
             </div>
 

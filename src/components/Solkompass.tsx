@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { Sun, Sunrise, Sunset, Clock } from "lucide-react"
+import { Sun, Sunrise, Sunset, Clock, Moon, Spline, Minus } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,9 +59,21 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
       </div>
 
       <div className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs leading-snug space-y-1">
-        <p><span className="text-amber-600 font-semibold">☀ Sol</span> — hvor solen er nå</p>
-        <p><span className="text-amber-500 font-semibold">⌒ Solens vei</span> — sol gjennom dagen</p>
-        <p><span className="text-neutral-500 font-semibold">▬ Skygge</span> — hvor skygger faller fra objekter</p>
+        <p className="flex items-center gap-1.5">
+          <Sun className="h-3 w-3 text-amber-600 shrink-0" />
+          <span className="text-amber-600 font-semibold">Sol</span>
+          <span>— hvor solen er nå</span>
+        </p>
+        <p className="flex items-center gap-1.5">
+          <Spline className="h-3 w-3 text-amber-500 shrink-0" />
+          <span className="text-amber-500 font-semibold">Solens vei</span>
+          <span>— sol gjennom dagen</span>
+        </p>
+        <p className="flex items-center gap-1.5">
+          <Minus className="h-3 w-3 text-neutral-500 shrink-0" />
+          <span className="text-neutral-500 font-semibold">Skygge</span>
+          <span>— hvor skygger faller</span>
+        </p>
       </div>
 
       <div className="space-y-1">
@@ -83,7 +95,10 @@ export function Solkompass({ lat, lng, date, onDateChange }: Props) {
           <span className="text-xs font-mono">
             {pad(parts.hours)}:{pad(parts.minutes)}
             {!info.isAboveHorizon && (
-              <span className="ml-1 text-muted-foreground">🌙 Natt</span>
+              <span className="ml-1 text-muted-foreground inline-flex items-center gap-0.5">
+                <Moon className="h-3 w-3" />
+                Natt
+              </span>
             )}
           </span>
         </div>

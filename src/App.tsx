@@ -1,9 +1,8 @@
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useState, useCallback, useRef } from "react"
 import { TopBar } from "@/components/TopBar"
 import { MapView } from "@/components/MapView"
 import { FloatingToolbar, type Tool, type ToolbarMode } from "@/components/FloatingToolbar"
 import { PropertiesPanel } from "@/components/PropertiesPanel"
-import { SettingsDialog, hasValidToken } from "@/components/SettingsDialog"
 import { CONFIG } from "@/config"
 import {
   DEFAULT_SHAPE,
@@ -23,7 +22,6 @@ export type MapStyle = "satellite" | "street" | "terrain"
 
 function App() {
   const [zoomLevel, setZoomLevel] = useState(CONFIG.defaultZoom)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeTool, setActiveTool] = useState<Tool>("select")
   const [toolbarMode, setToolbarMode] = useState<ToolbarMode>("garden")
   const [activeGardenElement, setActiveGardenElement] = useState<GardenElementType | null>(null)
@@ -72,13 +70,6 @@ function App() {
   const [selectedGardenDiameter, setSelectedGardenDiameter] = useState<number | null>(null)
   const [selectedGardenWidth, setSelectedGardenWidth] = useState<number | null>(null)
   const [selectedGardenColor, setSelectedGardenColor] = useState<string | null>(null)
-
-  // Auto-open settings on first visit if no token
-  useEffect(() => {
-    if (!hasValidToken()) {
-      setSettingsOpen(true)
-    }
-  }, [])
 
   const handleZoomChange = useCallback((zoom: number) => {
     setZoomLevel(zoom)
@@ -215,7 +206,6 @@ function App() {
     <div className="h-screen w-screen overflow-hidden relative">
       <TopBar
         zoomLevel={zoomLevel}
-        onOpenSettings={() => setSettingsOpen(true)}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={handleUndo}
@@ -300,7 +290,6 @@ function App() {
         onTextChange={handleTextChange}
         onLineChange={handleLineChange}
       />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }

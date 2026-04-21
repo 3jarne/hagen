@@ -88,9 +88,7 @@ function CategoryButton({
     ? category.elements.find((e) => e.type === activeElement)
     : null
 
-  const buttonLabel = activeInCategory
-    ? `${activeInCategory.emoji} ${activeInCategory.label}`
-    : `${category.emoji}`
+  const TriggerIcon = activeInCategory ? activeInCategory.icon : category.icon
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -100,19 +98,20 @@ function CategoryButton({
             <button
               aria-label={category.label}
               className={cn(
-                "h-10 flex items-center gap-0.5 px-2.5 rounded-full transition-colors text-sm",
+                "h-10 flex items-center gap-1 px-2.5 rounded-full transition-colors text-sm",
                 activeInCategory
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               )}
             >
-              <span>{buttonLabel}</span>
+              <TriggerIcon className="h-5 w-5" />
+              {activeInCategory && <span>{activeInCategory.label}</span>}
               <ChevronDown className="h-3 w-3 opacity-60" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top">
-          <p>{category.label}</p>
+          <p>{activeInCategory ? activeInCategory.label : category.label}</p>
         </TooltipContent>
       </Tooltip>
       <PopoverContent
@@ -122,24 +121,27 @@ function CategoryButton({
         sideOffset={8}
       >
         <div className="flex flex-col gap-0.5">
-          {category.elements.map((element) => (
-            <button
-              key={element.type}
-              onClick={() => {
-                onSelectElement(element.type)
-                setOpen(false)
-              }}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm whitespace-nowrap transition-colors",
-                activeElement === element.type
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-accent hover:text-accent-foreground"
-              )}
-            >
-              <span>{element.emoji}</span>
-              <span>{element.label}</span>
-            </button>
-          ))}
+          {category.elements.map((element) => {
+            const ElementIcon = element.icon
+            return (
+              <button
+                key={element.type}
+                onClick={() => {
+                  onSelectElement(element.type)
+                  setOpen(false)
+                }}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm whitespace-nowrap transition-colors",
+                  activeElement === element.type
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-accent hover:text-accent-foreground"
+                )}
+              >
+                <ElementIcon className="h-4 w-4" />
+                <span>{element.label}</span>
+              </button>
+            )
+          })}
         </div>
       </PopoverContent>
     </Popover>
