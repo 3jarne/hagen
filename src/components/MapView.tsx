@@ -19,7 +19,7 @@ import type { Position, Feature, Polygon } from "geojson"
 import type { ShapeProperties, TextProperties, LineProperties } from "@/lib/zone-defaults"
 import { distanceMeters, formatDistance } from "@/lib/measurement"
 import { simplify } from "@/lib/simplify"
-import type { PanelMode, MapStyle } from "@/App"
+import type { PanelMode, MapStyle } from "@/pages/MapPage"
 import {
   addKartverketLayer,
   addAreaLabelsLayer,

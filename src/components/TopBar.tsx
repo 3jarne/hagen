@@ -13,7 +13,7 @@ import {
   MenubarRadioGroup,
   MenubarRadioItem,
 } from "@/components/ui/menubar"
-import type { MapStyle } from "@/App"
+import type { MapStyle } from "@/pages/MapPage"
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog"
 import { useState } from "react"
 
