@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { MapPin, Search, Loader2 } from "lucide-react"
 import {
   Dialog,
@@ -11,7 +11,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { searchAddresses, type AddressHit } from "@/lib/kartverket"
+import {
+  KartverketError,
+  searchAddresses,
+  type AddressHit,
+} from "@/lib/kartverket"
 import { createProject, type Project } from "@/lib/projects"
 
 interface Props {
@@ -45,14 +49,12 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   }
 
   // Debounced address search — only runs when query is long enough
-  const abortRef = useRef<AbortController | null>(null)
   useEffect(() => {
     if (selected) return
     const trimmed = query.trim()
     if (trimmed.length < 3) return
 
     const ctrl = new AbortController()
-    abortRef.current = ctrl
     const handle = window.setTimeout(() => {
       setSearching(true)
       setSearchError(null)
@@ -65,9 +67,13 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
         .catch((err: unknown) => {
           if (ctrl.signal.aborted) return
           setSearching(false)
-          setSearchError(
-            err instanceof Error ? err.message : "Kunne ikke søke",
-          )
+          if (err instanceof KartverketError) {
+            setSearchError(err.message)
+          } else {
+            setSearchError(
+              err instanceof Error ? err.message : "Kunne ikke søke",
+            )
+          }
         })
     }, 300)
 
