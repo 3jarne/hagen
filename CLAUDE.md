@@ -38,3 +38,6 @@ eiendommer. Bruker logger inn med magic link, lagrer prosjekter i Supabase.
 - Appen antar norsk IP. Kartverket-API-et (ws.geonorge.no) blokkerer
   utenlandsk trafikk — TCP-tilkoblinger timer ut fra utlandet. Dette er
   et akseptert basiskrav: målgruppen er norske huseiere.
+- Push rett til `main` etter at build passerer. Eier er designer og
+  gjør ikke kode-review — PR-er er unødvendig friksjon. GitHub Pages
+  deployer automatisk fra main.
