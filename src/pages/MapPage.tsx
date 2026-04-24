@@ -1,9 +1,12 @@
-import { useState, useCallback, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Navigate, useNavigate, useParams } from "react-router-dom"
+import { Loader2 } from "lucide-react"
 import { TopBar } from "@/components/TopBar"
-import { MapView } from "@/components/MapView"
+import { MapView, type SaveStatus } from "@/components/MapView"
 import { FloatingToolbar, type Tool, type ToolbarMode } from "@/components/FloatingToolbar"
 import { PropertiesPanel } from "@/components/PropertiesPanel"
-import { CONFIG } from "@/config"
+import { getProject, type Project } from "@/lib/projects"
+import { loadDrawing, type DrawingData } from "@/lib/drawings"
 import {
   DEFAULT_SHAPE,
   DEFAULT_TEXT,
@@ -21,7 +24,100 @@ export type PanelMode = "shape" | "text" | "line" | "garden" | "none"
 export type MapStyle = "satellite" | "street" | "terrain"
 
 export function MapPage() {
-  const [zoomLevel, setZoomLevel] = useState(CONFIG.defaultZoom)
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+
+  const [project, setProject] = useState<Project | null | "notfound">(null)
+  const [drawings, setDrawings] = useState<DrawingData | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
+
+  useEffect(() => {
+    if (!id) return
+    let active = true
+    ;(async () => {
+      try {
+        const [p, d] = await Promise.all([getProject(id), loadDrawing(id)])
+        if (!active) return
+        if (!p) {
+          setProject("notfound")
+          return
+        }
+        setProject(p)
+        setDrawings(d)
+      } catch (err) {
+        if (!active) return
+        setLoadError(
+          err instanceof Error ? err.message : "Kunne ikke åpne prosjektet",
+        )
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [id])
+
+  const handleBack = useCallback(() => {
+    navigate("/prosjekter")
+  }, [navigate])
+
+  if (!id) return <Navigate to="/prosjekter" replace />
+  if (project === "notfound") return <Navigate to="/prosjekter" replace />
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="text-center space-y-3 max-w-md">
+          <p className="text-sm text-destructive">{loadError}</p>
+          <button
+            onClick={handleBack}
+            className="text-sm underline underline-offset-4"
+          >
+            Tilbake til prosjekter
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!project || !drawings) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Laster prosjekt…
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <LoadedMap
+      project={project}
+      initialDrawings={drawings}
+      saveStatus={saveStatus}
+      onSaveStatusChange={setSaveStatus}
+      onBack={handleBack}
+    />
+  )
+}
+
+interface LoadedMapProps {
+  project: Project
+  initialDrawings: DrawingData
+  saveStatus: SaveStatus
+  onSaveStatusChange: (s: SaveStatus) => void
+  onBack: () => void
+}
+
+function LoadedMap({
+  project,
+  initialDrawings,
+  saveStatus,
+  onSaveStatusChange,
+  onBack,
+}: LoadedMapProps) {
+  const [zoomLevel, setZoomLevel] = useState(project.zoom)
   const [activeTool, setActiveTool] = useState<Tool>("select")
   const [toolbarMode, setToolbarMode] = useState<ToolbarMode>("garden")
   const [activeGardenElement, setActiveGardenElement] = useState<GardenElementType | null>(null)
@@ -225,8 +321,18 @@ export function MapPage() {
         onAreaLabelsVisibleChange={setAreaLabelsVisible}
         solkompassVisible={solkompassVisible}
         onSolkompassVisibleChange={setSolkompassVisible}
+        projectTitle={project.address}
+        saveStatus={saveStatus}
+        onBack={onBack}
       />
       <MapView
+        projectId={project.id}
+        projectCenter={[project.center_lng, project.center_lat]}
+        projectZoom={project.zoom}
+        projectGnr={project.gnr}
+        projectBnr={project.bnr}
+        initialDrawings={initialDrawings}
+        onSaveStatusChange={onSaveStatusChange}
         onZoomChange={handleZoomChange}
         activeTool={activeTool}
         activeGardenElement={activeGardenElement}

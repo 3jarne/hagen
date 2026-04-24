@@ -28,10 +28,15 @@ create table if not exists public.drawings (
   project_id      uuid not null unique references public.projects(id) on delete cascade,
   draw_features   jsonb not null default '[]'::jsonb,
   text_features   jsonb not null default '[]'::jsonb,
+  line_features   jsonb not null default '[]'::jsonb,
   updated_at      timestamptz not null default now()
 );
 
 create index if not exists drawings_project_id_idx on public.drawings(project_id);
+
+-- Forward-compatible: add line_features for installs that ran an earlier schema.
+alter table public.drawings
+  add column if not exists line_features jsonb not null default '[]'::jsonb;
 
 -- ============================================================
 -- 3. updated_at trigger

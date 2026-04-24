@@ -1,4 +1,12 @@
-import { Undo2, Redo2, Search, Sun } from "lucide-react"
+import {
+  Undo2,
+  Redo2,
+  Sun,
+  ArrowLeft,
+  CloudOff,
+  Loader2,
+  CheckCircle2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import {
@@ -14,7 +22,9 @@ import {
   MenubarRadioItem,
 } from "@/components/ui/menubar"
 import type { MapStyle } from "@/pages/MapPage"
+import type { SaveStatus } from "@/components/MapView"
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog"
+import { cn } from "@/lib/utils"
 import { useState } from "react"
 
 interface TopBarProps {
@@ -38,6 +48,9 @@ interface TopBarProps {
   onAreaLabelsVisibleChange: (visible: boolean) => void
   solkompassVisible: boolean
   onSolkompassVisibleChange: (visible: boolean) => void
+  projectTitle: string
+  saveStatus: SaveStatus
+  onBack: () => void
 }
 
 export function TopBar({
@@ -61,10 +74,30 @@ export function TopBar({
   onAreaLabelsVisibleChange,
   solkompassVisible,
   onSolkompassVisibleChange,
+  projectTitle,
+  saveStatus,
+  onBack,
 }: TopBarProps) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex items-center h-10 border-b bg-background">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 ml-1 mr-1 gap-1"
+        onClick={onBack}
+        aria-label="Tilbake til prosjekter"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        <span className="hidden sm:inline">Prosjekter</span>
+      </Button>
+      <span
+        className="text-sm font-medium truncate max-w-[28ch] mr-2"
+        title={projectTitle}
+      >
+        {projectTitle}
+      </span>
+
       <Menubar className="border-none rounded-none h-full shadow-none">
         <MenubarMenu>
           <MenubarTrigger>File</MenubarTrigger>
@@ -178,25 +211,16 @@ export function TopBar({
         </Button>
       </div>
 
-      {/* Search input - centered */}
-      <div className="flex-1 flex justify-center px-4">
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search address..."
-            className="w-full h-7 pl-8 pr-3 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            readOnly
-          />
-        </div>
-      </div>
+      <div className="flex-1" />
+
+      {/* Save status */}
+      <SaveStatusBadge status={saveStatus} />
 
       {/* Zoom level */}
-      <div className="pr-1 text-xs text-muted-foreground font-mono whitespace-nowrap">
+      <div className="px-2 text-xs text-muted-foreground font-mono whitespace-nowrap">
         z{Math.round(zoomLevel)}
       </div>
 
-      {/* Settings */}
       <Button
         variant={solkompassVisible ? "secondary" : "ghost"}
         size="icon"
@@ -208,5 +232,37 @@ export function TopBar({
       </Button>
       <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
+  )
+}
+
+function SaveStatusBadge({ status }: { status: SaveStatus }) {
+  if (status === "idle") return null
+  const config = {
+    saving: {
+      icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
+      label: "Lagrer…",
+      className: "text-muted-foreground",
+    },
+    saved: {
+      icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+      label: "Lagret",
+      className: "text-muted-foreground",
+    },
+    error: {
+      icon: <CloudOff className="h-3.5 w-3.5" />,
+      label: "Feil ved lagring",
+      className: "text-destructive",
+    },
+  }[status]
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 text-xs whitespace-nowrap px-2",
+        config.className,
+      )}
+    >
+      {config.icon}
+      {config.label}
+    </span>
   )
 }

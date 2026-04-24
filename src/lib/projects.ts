@@ -22,6 +22,16 @@ export interface NewProjectInput {
   bnr: number
 }
 
+export async function getProject(id: string): Promise<Project | null> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle()
+  if (error) throw error
+  return (data as Project | null) ?? null
+}
+
 export async function listProjects(): Promise<Project[]> {
   const { data, error } = await supabase
     .from("projects")

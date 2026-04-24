@@ -32,12 +32,21 @@ import {
   addSolkompassLayers,
   addObjectShadowsLayer,
 } from "@/lib/map-layers"
-import { loadProject, saveProject } from "@/lib/storage"
+import { saveDrawing, type DrawingData } from "@/lib/drawings"
 import { exportJSON, exportPNG } from "@/lib/export"
+
+export type SaveStatus = "idle" | "saving" | "saved" | "error"
 import { GARDEN_ELEMENTS, type GardenElementType } from "@/lib/garden-types"
 import { registerGardenPatterns } from "@/lib/garden-patterns"
 
 interface MapViewProps {
+  projectId: string
+  projectCenter: [number, number]
+  projectZoom: number
+  projectGnr: number | null
+  projectBnr: number | null
+  initialDrawings: DrawingData
+  onSaveStatusChange: (status: SaveStatus) => void
   onZoomChange: (zoom: number) => void
   activeTool: Tool
   activeGardenElement: GardenElementType | null
@@ -83,6 +92,13 @@ interface ContextMenuState {
 }
 
 export function MapView({
+  projectId,
+  projectCenter,
+  projectZoom,
+  projectGnr,
+  projectBnr,
+  initialDrawings,
+  onSaveStatusChange,
   onZoomChange,
   activeTool,
   activeGardenElement,
@@ -180,6 +196,9 @@ export function MapView({
     startLngLat: { lng: number; lat: number }
   } | null>(null)
 
+  // Initial drawings (captured once; map load consumes them)
+  const initialDrawingsRef = useRef<DrawingData>(initialDrawings)
+
   // Line features state
   const lineFeaturesRef = useRef<Feature[]>([])
   const selectedLineIdsRef = useRef<Set<string>>(new Set())
@@ -211,15 +230,58 @@ export function MapView({
     activeToolRef.current = activeTool
   }, [activeTool])
 
-  /** Debounced save to localStorage */
+  const addUserPlotLayer = useCallback(
+    async (map: mapboxgl.Map) => {
+      if (projectGnr == null || projectBnr == null) return
+      try {
+        const url = `https://wfs.geonorge.no/skwfs/wfs.matrikkelkart?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=Eiendomskart:Teig&CQL_FILTER=gaardsnummer=${projectGnr}%20AND%20bruksnummer=${projectBnr}&SRSNAME=EPSG:4326&outputFormat=application/json`
+        const response = await fetch(url)
+        if (!response.ok) return
+        const data = (await response.json()) as GeoJSON.FeatureCollection
+        if (!data.features || data.features.length === 0) return
+        if (!map.getSource("user-plot")) {
+          map.addSource("user-plot", { type: "geojson", data })
+          map.addLayer({
+            id: "user-plot-fill",
+            type: "fill",
+            source: "user-plot",
+            paint: { "fill-color": "#f59e0b", "fill-opacity": 0.15 },
+          })
+          map.addLayer({
+            id: "user-plot-line",
+            type: "line",
+            source: "user-plot",
+            paint: { "line-color": "#f59e0b", "line-width": 2 },
+          })
+        } else {
+          ;(map.getSource("user-plot") as mapboxgl.GeoJSONSource).setData(data)
+        }
+      } catch (err) {
+        console.error("[eiendom] fetch failed", err)
+      }
+    },
+    [projectGnr, projectBnr],
+  )
+
+  /** Debounced save to Supabase */
   const saveToStorage = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       const draw = drawRef.current
       if (!draw) return
-      saveProject(draw, textFeaturesRef.current, lineFeaturesRef.current)
+      onSaveStatusChange("saving")
+      saveDrawing(projectId, {
+        drawFeatures: draw.getAll().features,
+        textFeatures: [...textFeaturesRef.current],
+        lineFeatures: [...lineFeaturesRef.current],
+      })
+        .then(() => onSaveStatusChange("saved"))
+        .catch((err) => {
+          console.error("[drawings] save failed", err)
+          onSaveStatusChange("error")
+        })
     }, 500)
-  }, [])
+  }, [projectId, onSaveStatusChange])
 
   useEffect(() => {
     saveToStorageRef.current = saveToStorage
@@ -489,7 +551,7 @@ export function MapView({
         return
       }
 
-      const anchor: Position = [CONFIG.defaultCenter[0], CONFIG.defaultCenter[1]]
+      const anchor: Position = [projectCenter[0], projectCenter[1]]
       const lat = anchor[1]
       const lng = anchor[0]
 
@@ -534,7 +596,7 @@ export function MapView({
       }
       sunSource.setData({ type: "FeatureCollection", features: sunFeatures })
     },
-    [],
+    [projectCenter],
   )
 
   /** Sync object shadows for all drawn garden features with height */
@@ -548,8 +610,8 @@ export function MapView({
         return
       }
 
-      const lat = CONFIG.defaultCenter[1]
-      const lng = CONFIG.defaultCenter[0]
+      const lat = projectCenter[1]
+      const lng = projectCenter[0]
       const info = getSunInfo(date, lat, lng)
 
       if (!info.isAboveHorizon) {
@@ -577,7 +639,7 @@ export function MapView({
 
       source.setData({ type: "FeatureCollection", features })
     },
-    [],
+    [projectCenter],
   )
 
   /** Sync line features to map GeoJSON source, including arrow point features */
@@ -929,8 +991,8 @@ export function MapView({
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: "mapbox://styles/mapbox/satellite-v9",
-      center: CONFIG.defaultCenter,
-      zoom: CONFIG.defaultZoom,
+      center: projectCenter,
+      zoom: projectZoom,
       preserveDrawingBuffer: true,
     })
     mapRef.current = map
@@ -969,7 +1031,7 @@ export function MapView({
     )
 
     map.on("zoom", () => onZoomChange(map.getZoom()))
-    onZoomChange(CONFIG.defaultZoom)
+    onZoomChange(projectZoom)
 
     map.on("load", () => {
       // Register garden fill patterns (before layers reference them)
@@ -977,6 +1039,7 @@ export function MapView({
 
       // Add all custom layers
       addKartverketLayer(map)
+      addUserPlotLayer(map)
       addAreaLabelsLayer(map, { visible: areaLabelsVisible })
       addTextLabelsLayers(map)
       addLineFeatureLayers(map)
@@ -1035,26 +1098,27 @@ export function MapView({
         }
       })
 
-      // Load saved project from localStorage
-      let loaded = false
-      const saved = loadProject()
-      if (saved) {
-        for (const feature of saved.drawFeatures || []) {
+      // Populate from initial drawings (loaded from Supabase by the page).
+      const hasInitial =
+        initialDrawingsRef.current.drawFeatures.length > 0 ||
+        initialDrawingsRef.current.textFeatures.length > 0 ||
+        initialDrawingsRef.current.lineFeatures.length > 0
+      if (hasInitial) {
+        for (const feature of initialDrawingsRef.current.drawFeatures) {
           draw.add(feature)
         }
-        textFeaturesRef.current = saved.textFeatures || []
-        lineFeaturesRef.current = saved.lineFeatures || []
+        textFeaturesRef.current = [...initialDrawingsRef.current.textFeatures]
+        lineFeaturesRef.current = [...initialDrawingsRef.current.lineFeatures]
         syncTextLabels(map)
         syncLineFeatures(map)
         updateAreaLabels(map, draw)
         syncGardenOverlays(map, draw)
-        loaded = true
       }
 
       history.push({
-        drawFeatures: loaded ? draw.getAll().features : [],
-        textFeatures: loaded ? [...textFeaturesRef.current] : [],
-        lineFeatures: loaded ? [...lineFeaturesRef.current] : [],
+        drawFeatures: hasInitial ? draw.getAll().features : [],
+        textFeatures: hasInitial ? [...textFeaturesRef.current] : [],
+        lineFeatures: hasInitial ? [...lineFeaturesRef.current] : [],
       })
     })
 
@@ -2352,8 +2416,8 @@ export function MapView({
     zoomOutRef.current = () => mapRef.current?.zoomOut()
     resetViewRef.current = () => {
       mapRef.current?.flyTo({
-        center: CONFIG.defaultCenter,
-        zoom: CONFIG.defaultZoom,
+        center: projectCenter,
+        zoom: projectZoom,
       })
     }
   }, [zoomInRef, zoomOutRef, resetViewRef])
@@ -2386,6 +2450,7 @@ export function MapView({
         kartverketOpacity,
         kartverketVisible,
       })
+      addUserPlotLayer(map)
 
       // Restore draw features
       if (draw) {
@@ -2730,8 +2795,8 @@ export function MapView({
       {solkompassVisible && (
         <>
           <Solkompass
-            lat={CONFIG.defaultCenter[1]}
-            lng={CONFIG.defaultCenter[0]}
+            lat={projectCenter[1]}
+            lng={projectCenter[0]}
             date={solkompassDate}
             onDateChange={onSolkompassDateChange}
           />
