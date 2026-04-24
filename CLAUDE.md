@@ -35,3 +35,6 @@ eiendommer. Bruker logger inn med magic link, lagrer prosjekter i Supabase.
 - Supabase-nøkler leses fra `VITE_SUPABASE_URL` og `VITE_SUPABASE_ANON_KEY`.
 - Brukeren skriver aldri GNR/BNR, koordinater eller API-nøkler manuelt.
 - Row Level Security er påslått på alle tabeller — bruker ser kun egne rader.
+- Appen antar norsk IP. Kartverket-API-et (ws.geonorge.no) blokkerer
+  utenlandsk trafikk — TCP-tilkoblinger timer ut fra utlandet. Dette er
+  et akseptert basiskrav: målgruppen er norske huseiere.
