@@ -144,11 +144,13 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
           <div className="space-y-1.5">
             <Label htmlFor="address-search">Adresse</Label>
             <div className="relative">
-              {searching ? (
-                <Loader2 className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-              ) : (
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              )}
+              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                {searching ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
+              </span>
               <Input
                 id="address-search"
                 autoComplete="off"
