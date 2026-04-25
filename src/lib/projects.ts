@@ -10,6 +10,8 @@ export interface Project {
   zoom: number
   gnr: number | null
   bnr: number | null
+  sharing_enabled: boolean
+  share_id: string | null
   created_at: string
   updated_at: string
 }
