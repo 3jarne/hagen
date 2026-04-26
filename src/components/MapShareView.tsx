@@ -168,18 +168,20 @@ export function MapShareView({
       onKartverketLoadingChange?.(false)
       return
     }
-    if (map.isSourceLoaded("kartverket-topo")) {
-      onKartverketLoadingChange?.(false)
-      return
-    }
     onKartverketLoadingChange?.(true)
-    const onIdle = () => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    const finish = () => {
       onKartverketLoadingChange?.(false)
-      map.off("idle", onIdle)
+      map.off("idle", finish)
+      if (timeoutId) clearTimeout(timeoutId)
     }
-    map.on("idle", onIdle)
+    map.once("idle", finish)
+    // Fallback for utlandet: Kartverket blokkerer utenlandsk trafikk og
+    // tiles vil aldri komme. Klarér spinneren uansett etter 12s.
+    timeoutId = setTimeout(finish, 12_000)
     return () => {
-      map.off("idle", onIdle)
+      map.off("idle", finish)
+      if (timeoutId) clearTimeout(timeoutId)
     }
   }, [kartverketVisible, kartverketOpacity, onKartverketLoadingChange])
 
