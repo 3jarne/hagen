@@ -4,6 +4,7 @@ import { ProtectedRoute } from "@/auth/ProtectedRoute"
 import { LandingPage } from "@/pages/LandingPage"
 import { ProjectsPage } from "@/pages/ProjectsPage"
 import { MapPage } from "@/pages/MapPage"
+import { SharePage } from "@/pages/SharePage"
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/del/:shareId" element={<SharePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

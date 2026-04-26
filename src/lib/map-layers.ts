@@ -592,6 +592,51 @@ export function addSolkompassLayers(map: Map) {
 }
 
 /**
+ * Fetch eiendomsgrense (gnr/bnr) fra Geonorge WFS og tegn som overlay.
+ * Stille fail hvis grensen ikke kan hentes (f.eks. utenlandsk IP).
+ */
+export async function addUserPlotLayer(
+  map: Map,
+  gnr: number | null,
+  bnr: number | null,
+) {
+  if (gnr == null || bnr == null) return
+  try {
+    const url =
+      `https://wfs.geonorge.no/skwfs/wfs.matrikkelkart?` +
+      `SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&` +
+      `TYPENAMES=Eiendomskart:Teig&` +
+      `CQL_FILTER=gaardsnummer=${gnr}%20AND%20bruksnummer=${bnr}&` +
+      `SRSNAME=EPSG:4326&outputFormat=application/json`
+    const response = await fetch(url)
+    if (!response.ok) return
+    const data = (await response.json()) as GeoJSON.FeatureCollection
+    if (!data.features || data.features.length === 0) return
+    if (!map.getSource("user-plot")) {
+      map.addSource("user-plot", { type: "geojson", data })
+      map.addLayer({
+        id: "user-plot-fill",
+        type: "fill",
+        source: "user-plot",
+        paint: { "fill-color": "#f59e0b", "fill-opacity": 0.15 },
+      })
+      map.addLayer({
+        id: "user-plot-line",
+        type: "line",
+        source: "user-plot",
+        paint: { "line-color": "#f59e0b", "line-width": 2 },
+      })
+    } else {
+      ;(map.getSource("user-plot") as import("mapbox-gl").GeoJSONSource).setData(
+        data,
+      )
+    }
+  } catch (err) {
+    console.error("[eiendom] fetch failed", err)
+  }
+}
+
+/**
  * Add fog-of-war mask source + layer. The mask polygon has a large outer
  * ring with the project's allowed area as a hole — everything outside the
  * hole is rendered semi-transparent dark. Optional fade rings sit just

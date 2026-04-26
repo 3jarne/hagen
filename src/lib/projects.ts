@@ -34,6 +34,21 @@ export async function getProject(id: string): Promise<Project | null> {
   return (data as Project | null) ?? null
 }
 
+/** Hent prosjekt via share_id — krever ikke innlogging.
+ *  RLS sørger for at kun delte prosjekter returneres. */
+export async function getProjectByShareId(
+  shareId: string,
+): Promise<Project | null> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("share_id", shareId)
+    .eq("sharing_enabled", true)
+    .maybeSingle()
+  if (error) throw error
+  return (data as Project | null) ?? null
+}
+
 export async function listProjects(): Promise<Project[]> {
   const { data, error } = await supabase
     .from("projects")
