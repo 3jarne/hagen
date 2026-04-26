@@ -133,7 +133,7 @@ function LoadedMap({
 
   // View menu state
   const [mapStyle, setMapStyle] = useState<MapStyle>("satellite")
-  const [kartverketVisible, setKartverketVisible] = useState(true)
+  const [kartverketVisible, setKartverketVisible] = useState(false)
   const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
   const [areaLabelsVisible, setAreaLabelsVisible] = useState(false)
   const [solkompassVisible, setSolkompassVisible] = useState(false)

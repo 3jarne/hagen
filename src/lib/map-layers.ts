@@ -1,4 +1,5 @@
 import type { Map } from "mapbox-gl"
+import type { Feature, Polygon } from "geojson"
 import { registerGardenPatterns } from "@/lib/garden-patterns"
 
 /**
@@ -591,12 +592,46 @@ export function addSolkompassLayers(map: Map) {
 }
 
 /**
+ * Add fog-of-war mask source + layer. The polygon has a large outer ring
+ * with the project's allowed area as a hole — everything outside the hole
+ * is rendered semi-transparent dark. Added last so it sits above all
+ * other content.
+ */
+export function addFogOfWarLayer(map: Map, mask: Feature<Polygon>) {
+  if (!map.getSource("fog-of-war")) {
+    map.addSource("fog-of-war", {
+      type: "geojson",
+      data: mask,
+    })
+  } else {
+    ;(map.getSource("fog-of-war") as import("mapbox-gl").GeoJSONSource).setData(
+      mask,
+    )
+  }
+  if (!map.getLayer("fog-of-war-fill")) {
+    map.addLayer({
+      id: "fog-of-war-fill",
+      type: "fill",
+      source: "fog-of-war",
+      paint: {
+        "fill-color": "#0a0a0a",
+        "fill-opacity": 0.55,
+      },
+    })
+  }
+}
+
+/**
  * Re-add all custom layers after a map style change.
  * Call this inside map.once("style.load", ...).
  */
 export function restoreLayersAfterStyleChange(
   map: Map,
-  opts?: { kartverketOpacity?: number; kartverketVisible?: boolean }
+  opts?: {
+    kartverketOpacity?: number
+    kartverketVisible?: boolean
+    fogMask?: Feature<Polygon>
+  }
 ) {
   registerGardenPatterns(map)
   addKartverketLayer(map, {
@@ -611,4 +646,5 @@ export function restoreLayersAfterStyleChange(
   addScaleHandlesLayer(map)
   addObjectShadowsLayer(map)
   addSolkompassLayers(map)
+  if (opts?.fogMask) addFogOfWarLayer(map, opts.fogMask)
 }

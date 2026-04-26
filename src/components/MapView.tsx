@@ -31,9 +31,15 @@ import {
   addScaleHandlesLayer,
   addSolkompassLayers,
   addObjectShadowsLayer,
+  addFogOfWarLayer,
 } from "@/lib/map-layers"
 import { saveDrawing, type DrawingData } from "@/lib/drawings"
 import { exportJSON, exportPNG } from "@/lib/export"
+import {
+  fogMaskPolygon,
+  fogMaxBounds,
+  isFeatureInsideFog,
+} from "@/lib/fog-of-war"
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error"
 import { GARDEN_ELEMENTS, type GardenElementType } from "@/lib/garden-types"
@@ -988,11 +994,15 @@ export function MapView({
 
     mapboxgl.accessToken = CONFIG.mapboxToken
 
+    const fogMask = fogMaskPolygon(projectCenter)
+    const fogBounds = fogMaxBounds(projectCenter)
+
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: "mapbox://styles/mapbox/satellite-v9",
       center: projectCenter,
       zoom: projectZoom,
+      maxBounds: fogBounds,
       preserveDrawingBuffer: true,
     })
     mapRef.current = map
@@ -1048,6 +1058,7 @@ export function MapView({
       addScaleHandlesLayer(map)
       addObjectShadowsLayer(map)
       addSolkompassLayers(map)
+      addFogOfWarLayer(map, fogMask)
 
       // Recalculate text and line bbox on map move/zoom
       map.on("move", () => {
@@ -1124,8 +1135,21 @@ export function MapView({
 
     // Draw events
     map.on("draw.create", (e: { features: GeoJSON.Feature[] }) => {
-      const gardenType = activeGardenElementRef.current
+      // Fog of war: avvis stille features som ligger utenfor sirkelen.
+      const rejected: string[] = []
+      const accepted: GeoJSON.Feature[] = []
       for (const feature of e.features) {
+        if (!isFeatureInsideFog(feature, projectCenter)) {
+          rejected.push(feature.id as string)
+        } else {
+          accepted.push(feature)
+        }
+      }
+      for (const id of rejected) draw.delete(id)
+      if (accepted.length === 0) return
+
+      const gardenType = activeGardenElementRef.current
+      for (const feature of accepted) {
         const id = feature.id as string
         const current = draw.get(id)
         if (!current) continue
@@ -2449,6 +2473,7 @@ export function MapView({
       restoreLayersAfterStyleChange(map, {
         kartverketOpacity,
         kartverketVisible,
+        fogMask: fogMaskPolygon(projectCenter),
       })
       addUserPlotLayer(map)
 
