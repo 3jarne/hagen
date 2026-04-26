@@ -6,6 +6,8 @@ import { MapShareView } from "@/components/MapShareView"
 import { ViewControlsPopover } from "@/components/ViewControlsPopover"
 import { getProjectByShareId, type Project } from "@/lib/projects"
 import { loadDrawing, type DrawingData } from "@/lib/drawings"
+import { supabase } from "@/lib/supabase"
+import type { Feature } from "geojson"
 import type { MapStyle } from "@/pages/MapPage"
 
 export function SharePage() {
@@ -77,11 +79,46 @@ interface SharedMapProps {
   drawings: DrawingData
 }
 
-function SharedMap({ project, drawings }: SharedMapProps) {
+function SharedMap({ project, drawings: initialDrawings }: SharedMapProps) {
+  const [drawings, setDrawings] = useState<DrawingData>(initialDrawings)
   const [mapStyle, setMapStyle] = useState<MapStyle>("satellite")
   const [kartverketVisible, setKartverketVisible] = useState(false)
   const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
   const [kartverketLoading, setKartverketLoading] = useState(false)
+
+  // Realtime: lytt på drawings-endringer for dette prosjektet og
+  // oppdater visningen automatisk når eier tegner.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`share:drawings:${project.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "drawings",
+          filter: `project_id=eq.${project.id}`,
+        },
+        (payload) => {
+          if (payload.eventType === "DELETE") return
+          const row = payload.new as {
+            draw_features?: Feature[]
+            text_features?: Feature[]
+            line_features?: Feature[]
+          }
+          setDrawings({
+            drawFeatures: row.draw_features ?? [],
+            textFeatures: row.text_features ?? [],
+            lineFeatures: row.line_features ?? [],
+          })
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [project.id])
 
   return (
     <div className="h-screen w-screen overflow-hidden relative">
