@@ -20,12 +20,20 @@ eiendommer. Bruker logger inn med magic link, lagrer prosjekter i Supabase.
 ## Arkitektur
 
 - To tegnemodus: **Hage** (høy-nivå hage-elementer) og **Rå** (grunnformer).
-- Tegninger lagres som GeoJSON (`draw_features`, `text_features`) i
-  `drawings`-tabellen, én rad per prosjekt.
+- Tegninger lagres som GeoJSON (`draw_features`, `text_features`,
+  `line_features`) i `drawings`-tabellen, én rad per prosjekt.
 - Prosjekt = adresse + koordinater + GNR/BNR. GNR/BNR hentes automatisk
   fra Kartverket adressesøk og er aldri brukerinnskrevet.
 - Auto-save er debounced (500ms) til Supabase. Ingen localStorage, ingen
   offline-støtte.
+- **Deling:** prosjekt kan deles via lenke `/del/:shareId`. RLS-policy
+  åpner public read når `sharing_enabled=true` og `share_id` er satt.
+  Read-only-visningen lytter på Supabase realtime og oppdaterer
+  automatisk når eier tegner.
+- **Fog of war:** kartet er begrenset til en sirkel rundt prosjektets
+  sentrum (v0.4: 500m approksimasjon, v0.5: faktisk eiendomsgrense +
+  100m buffer fra matrikkel-API). Maxbounds + draw-validering hindrer
+  panorering og tegning utenfor.
 
 ## Regler
 
