@@ -592,12 +592,17 @@ export function addSolkompassLayers(map: Map) {
 }
 
 /**
- * Add fog-of-war mask source + layer. The polygon has a large outer ring
- * with the project's allowed area as a hole — everything outside the hole
- * is rendered semi-transparent dark. Added last so it sits above all
- * other content.
+ * Add fog-of-war mask source + layer. The mask polygon has a large outer
+ * ring with the project's allowed area as a hole — everything outside the
+ * hole is rendered semi-transparent dark. Optional fade rings sit just
+ * inside the hole edge to soften the boundary. Added last so it sits
+ * above all other content.
  */
-export function addFogOfWarLayer(map: Map, mask: Feature<Polygon>) {
+export function addFogOfWarLayer(
+  map: Map,
+  mask: Feature<Polygon>,
+  fadeRings: Feature<Polygon>[] = [],
+) {
   if (!map.getSource("fog-of-war")) {
     map.addSource("fog-of-war", {
       type: "geojson",
@@ -619,6 +624,32 @@ export function addFogOfWarLayer(map: Map, mask: Feature<Polygon>) {
       },
     })
   }
+
+  const fadeData = {
+    type: "FeatureCollection" as const,
+    features: fadeRings,
+  }
+  if (!map.getSource("fog-of-war-fade")) {
+    map.addSource("fog-of-war-fade", {
+      type: "geojson",
+      data: fadeData,
+    })
+  } else {
+    ;(
+      map.getSource("fog-of-war-fade") as import("mapbox-gl").GeoJSONSource
+    ).setData(fadeData)
+  }
+  if (!map.getLayer("fog-of-war-fade-fill")) {
+    map.addLayer({
+      id: "fog-of-war-fade-fill",
+      type: "fill",
+      source: "fog-of-war-fade",
+      paint: {
+        "fill-color": "#0a0a0a",
+        "fill-opacity": ["get", "opacity"],
+      },
+    })
+  }
 }
 
 /**
@@ -631,6 +662,7 @@ export function restoreLayersAfterStyleChange(
     kartverketOpacity?: number
     kartverketVisible?: boolean
     fogMask?: Feature<Polygon>
+    fogFadeRings?: Feature<Polygon>[]
   }
 ) {
   registerGardenPatterns(map)
@@ -646,5 +678,7 @@ export function restoreLayersAfterStyleChange(
   addScaleHandlesLayer(map)
   addObjectShadowsLayer(map)
   addSolkompassLayers(map)
-  if (opts?.fogMask) addFogOfWarLayer(map, opts.fogMask)
+  if (opts?.fogMask) {
+    addFogOfWarLayer(map, opts.fogMask, opts.fogFadeRings ?? [])
+  }
 }

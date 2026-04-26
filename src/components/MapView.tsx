@@ -37,6 +37,7 @@ import { saveDrawing, type DrawingData } from "@/lib/drawings"
 import { exportJSON, exportPNG } from "@/lib/export"
 import {
   fogMaskPolygon,
+  fogFadeRings,
   fogMaxBounds,
   isFeatureInsideFog,
 } from "@/lib/fog-of-war"
@@ -995,6 +996,7 @@ export function MapView({
     mapboxgl.accessToken = CONFIG.mapboxToken
 
     const fogMask = fogMaskPolygon(projectCenter)
+    const fogFade = fogFadeRings(projectCenter)
     const fogBounds = fogMaxBounds(projectCenter)
 
     const map = new mapboxgl.Map({
@@ -1048,7 +1050,10 @@ export function MapView({
       registerGardenPatterns(map)
 
       // Add all custom layers
-      addKartverketLayer(map)
+      addKartverketLayer(map, {
+        visible: kartverketVisible,
+        opacity: kartverketOpacity,
+      })
       addUserPlotLayer(map)
       addAreaLabelsLayer(map, { visible: areaLabelsVisible })
       addTextLabelsLayers(map)
@@ -1058,7 +1063,7 @@ export function MapView({
       addScaleHandlesLayer(map)
       addObjectShadowsLayer(map)
       addSolkompassLayers(map)
-      addFogOfWarLayer(map, fogMask)
+      addFogOfWarLayer(map, fogMask, fogFade)
 
       // Recalculate text and line bbox on map move/zoom
       map.on("move", () => {
@@ -2474,6 +2479,7 @@ export function MapView({
         kartverketOpacity,
         kartverketVisible,
         fogMask: fogMaskPolygon(projectCenter),
+        fogFadeRings: fogFadeRings(projectCenter),
       })
       addUserPlotLayer(map)
 

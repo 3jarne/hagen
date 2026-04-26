@@ -10,9 +10,9 @@ import type { LngLatBoundsLike } from "mapbox-gl"
  * til faktisk eiendomsgrense + 100m buffer (matrikkel-API).
  */
 
-export const FOG_RADIUS_METERS = 100
+export const FOG_RADIUS_METERS = 1000
 const EARTH_RADIUS_METERS = 6_371_000
-const CIRCLE_SEGMENTS = 64
+const CIRCLE_SEGMENTS = 96
 
 /** Beregn ringen som approksimerer en sirkel med gitt radius (i meter). */
 function circleRing(
@@ -64,6 +64,39 @@ export function fogMaskPolygon(
       coordinates: [outer, hole],
     },
   }
+}
+
+/**
+ * Fade-bånd som ligger innenfor hovedmasken og gir en mykere overgang.
+ * Hver ring har sin egen opacity slik at fog-grensen ikke føles som en
+ * skarp kant. Bånd-bredden er 15% av radius, totalt fire bånd.
+ */
+export function fogFadeRings(
+  center: [number, number],
+  radiusMeters: number = FOG_RADIUS_METERS,
+): Feature<Polygon>[] {
+  const bandWidth = radiusMeters * 0.04
+  const bands = [
+    { offset: 0, opacity: 0.42 },
+    { offset: 1, opacity: 0.3 },
+    { offset: 2, opacity: 0.18 },
+    { offset: 3, opacity: 0.08 },
+  ]
+  return bands.map(({ offset, opacity }) => {
+    const outerR = radiusMeters - offset * bandWidth
+    const innerR = radiusMeters - (offset + 1) * bandWidth
+    const outer = circleRing(center, outerR)
+    const inner = circleRing(center, innerR)
+    inner.reverse()
+    return {
+      type: "Feature",
+      properties: { opacity },
+      geometry: {
+        type: "Polygon",
+        coordinates: [outer, inner],
+      },
+    }
+  })
 }
 
 /** Bbox rundt fog-sirkelen — brukes som Mapbox maxBounds. */
