@@ -2524,6 +2524,9 @@ export function MapView({
     if (kartverketVisible) {
       map.setPaintProperty("kartverket-topo", "raster-opacity", kartverketOpacity)
     }
+    // Tving en ny render — uten dette blir visibility-endringen
+    // ikke synlig før brukeren panorerer/zoomer.
+    map.triggerRepaint()
     if (!kartverketVisible) {
       onKartverketLoadingChange?.(false)
       return

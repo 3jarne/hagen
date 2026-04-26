@@ -164,6 +164,9 @@ export function MapShareView({
         kartverketOpacity,
       )
     }
+    // Tving en ny render — uten dette blir visibility-endringen
+    // ikke synlig før brukeren panorerer/zoomer.
+    map.triggerRepaint()
     if (!kartverketVisible) {
       onKartverketLoadingChange?.(false)
       return
