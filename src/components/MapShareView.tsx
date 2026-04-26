@@ -152,21 +152,17 @@ export function MapShareView({
     const map = mapRef.current
     if (!map) return
     if (!map.getLayer("kartverket-topo")) return
-    map.setLayoutProperty(
-      "kartverket-topo",
-      "visibility",
-      kartverketVisible ? "visible" : "none",
-    )
+    // Bruk opacity-basert toggle slik at Mapbox fortsetter å hente
+    // tiles ved zoom-endringer — visibility:none ville stoppe
+    // tile-evalueringen og skape "ingen endring etter zoom"-bug.
     if (kartverketVisible) {
-      map.setPaintProperty(
-        "kartverket-topo",
-        "raster-opacity",
-        kartverketOpacity,
-      )
+      map.setLayoutProperty("kartverket-topo", "visibility", "visible")
     }
-    // Tving en ny render — uten dette blir visibility-endringen
-    // ikke synlig før brukeren panorerer/zoomer.
-    map.triggerRepaint()
+    map.setPaintProperty(
+      "kartverket-topo",
+      "raster-opacity",
+      kartverketVisible ? kartverketOpacity : 0,
+    )
     if (!kartverketVisible) {
       onKartverketLoadingChange?.(false)
       return
