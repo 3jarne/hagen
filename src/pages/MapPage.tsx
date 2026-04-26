@@ -5,6 +5,7 @@ import { TopBar } from "@/components/TopBar"
 import { MapView, type SaveStatus } from "@/components/MapView"
 import { FloatingToolbar, type Tool, type ToolbarMode } from "@/components/FloatingToolbar"
 import { PropertiesPanel } from "@/components/PropertiesPanel"
+import { ShareDialog } from "@/components/ShareDialog"
 import { getProject, type Project } from "@/lib/projects"
 import { loadDrawing, type DrawingData } from "@/lib/drawings"
 import {
@@ -138,6 +139,11 @@ function LoadedMap({
   const [areaLabelsVisible, setAreaLabelsVisible] = useState(false)
   const [solkompassVisible, setSolkompassVisible] = useState(false)
   const [solkompassDate, setSolkompassDate] = useState<Date>(() => new Date())
+
+  // Sharing state
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [sharingEnabled, setSharingEnabled] = useState(project.sharing_enabled)
+  const [shareId, setShareId] = useState<string | null>(project.share_id)
 
   // Properties panel state — global defaults (never overwritten by selection)
   const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
@@ -324,6 +330,8 @@ function LoadedMap({
         projectTitle={project.address}
         saveStatus={saveStatus}
         onBack={onBack}
+        sharingEnabled={sharingEnabled}
+        onShareClick={() => setShareDialogOpen(true)}
       />
       <MapView
         projectId={project.id}
@@ -395,6 +403,18 @@ function LoadedMap({
         onShapeChange={handleShapeChange}
         onTextChange={handleTextChange}
         onLineChange={handleLineChange}
+      />
+      <ShareDialog
+        open={shareDialogOpen}
+        onOpenChange={setShareDialogOpen}
+        projectId={project.id}
+        projectCenter={[project.center_lng, project.center_lat]}
+        sharingEnabled={sharingEnabled}
+        shareId={shareId}
+        onShareStateChange={({ sharing_enabled, share_id }) => {
+          setSharingEnabled(sharing_enabled)
+          setShareId(share_id)
+        }}
       />
     </div>
   )

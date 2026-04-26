@@ -6,6 +6,7 @@ import {
   CloudOff,
   Loader2,
   CheckCircle2,
+  Share2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
@@ -51,6 +52,8 @@ interface TopBarProps {
   projectTitle: string
   saveStatus: SaveStatus
   onBack: () => void
+  sharingEnabled: boolean
+  onShareClick: () => void
 }
 
 export function TopBar({
@@ -77,6 +80,8 @@ export function TopBar({
   projectTitle,
   saveStatus,
   onBack,
+  sharingEnabled,
+  onShareClick,
 }: TopBarProps) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   return (
@@ -92,11 +97,21 @@ export function TopBar({
         <span className="hidden sm:inline">Prosjekter</span>
       </Button>
       <span
-        className="text-sm font-medium truncate max-w-[28ch] mr-2"
+        className="text-sm font-medium truncate max-w-[28ch] mr-1"
         title={projectTitle}
       >
         {projectTitle}
       </span>
+      <Button
+        variant={sharingEnabled ? "secondary" : "ghost"}
+        size="sm"
+        className="h-8 mr-2 gap-1"
+        onClick={onShareClick}
+        title={sharingEnabled ? "Deling er på" : "Del hageplanen"}
+      >
+        <Share2 className="h-4 w-4" />
+        <span className="hidden sm:inline">Del</span>
+      </Button>
 
       <Menubar className="border-none rounded-none h-full shadow-none">
         <MenubarMenu>
