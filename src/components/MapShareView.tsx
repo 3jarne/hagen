@@ -39,6 +39,7 @@ interface MapShareViewProps {
   mapStyle: MapStyle
   kartverketVisible: boolean
   kartverketOpacity: number
+  onKartverketLoadingChange?: (loading: boolean) => void
 }
 
 export function MapShareView({
@@ -50,6 +51,7 @@ export function MapShareView({
   mapStyle,
   kartverketVisible,
   kartverketOpacity,
+  onKartverketLoadingChange,
 }: MapShareViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -145,7 +147,7 @@ export function MapShareView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapStyle])
 
-  // Kartverket toggle
+  // Kartverket toggle + loading detection
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -162,7 +164,24 @@ export function MapShareView({
         kartverketOpacity,
       )
     }
-  }, [kartverketVisible, kartverketOpacity])
+    if (!kartverketVisible) {
+      onKartverketLoadingChange?.(false)
+      return
+    }
+    if (map.isSourceLoaded("kartverket-topo")) {
+      onKartverketLoadingChange?.(false)
+      return
+    }
+    onKartverketLoadingChange?.(true)
+    const onIdle = () => {
+      onKartverketLoadingChange?.(false)
+      map.off("idle", onIdle)
+    }
+    map.on("idle", onIdle)
+    return () => {
+      map.off("idle", onIdle)
+    }
+  }, [kartverketVisible, kartverketOpacity, onKartverketLoadingChange])
 
   return <div ref={containerRef} className="absolute inset-0" />
 }

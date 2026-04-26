@@ -78,6 +78,7 @@ interface MapViewProps {
   mapStyle: MapStyle
   kartverketVisible: boolean
   kartverketOpacity: number
+  onKartverketLoadingChange?: (loading: boolean) => void
   selectedGardenDiameter: number | null
   selectedGardenWidth: number | null
   selectedGardenName: string | null
@@ -130,6 +131,7 @@ export function MapView({
   mapStyle,
   kartverketVisible,
   kartverketOpacity,
+  onKartverketLoadingChange,
   selectedGardenDiameter,
   selectedGardenWidth,
   selectedGardenName,
@@ -2509,7 +2511,7 @@ export function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapStyle])
 
-  // Kartverket overlay visibility and opacity
+  // Kartverket overlay visibility, opacity, and loading detection
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -2522,7 +2524,24 @@ export function MapView({
     if (kartverketVisible) {
       map.setPaintProperty("kartverket-topo", "raster-opacity", kartverketOpacity)
     }
-  }, [kartverketVisible, kartverketOpacity])
+    if (!kartverketVisible) {
+      onKartverketLoadingChange?.(false)
+      return
+    }
+    if (map.isSourceLoaded("kartverket-topo")) {
+      onKartverketLoadingChange?.(false)
+      return
+    }
+    onKartverketLoadingChange?.(true)
+    const onIdle = () => {
+      onKartverketLoadingChange?.(false)
+      map.off("idle", onIdle)
+    }
+    map.on("idle", onIdle)
+    return () => {
+      map.off("idle", onIdle)
+    }
+  }, [kartverketVisible, kartverketOpacity, onKartverketLoadingChange])
 
   // Area labels visibility
   useEffect(() => {

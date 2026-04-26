@@ -6,6 +6,7 @@ import { MapView, type SaveStatus } from "@/components/MapView"
 import { FloatingToolbar, type Tool, type ToolbarMode } from "@/components/FloatingToolbar"
 import { PropertiesPanel } from "@/components/PropertiesPanel"
 import { ShareDialog } from "@/components/ShareDialog"
+import { ViewControlsPopover } from "@/components/ViewControlsPopover"
 import { getProject, type Project } from "@/lib/projects"
 import { loadDrawing, type DrawingData } from "@/lib/drawings"
 import {
@@ -144,6 +145,8 @@ function LoadedMap({
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [sharingEnabled, setSharingEnabled] = useState(project.sharing_enabled)
   const [shareId, setShareId] = useState<string | null>(project.share_id)
+
+  const [kartverketLoading, setKartverketLoading] = useState(false)
 
   // Properties panel state — global defaults (never overwritten by selection)
   const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
@@ -314,12 +317,6 @@ function LoadedMap({
         onRedo={handleRedo}
         onExportJSON={handleExportJSON}
         onExportPNG={handleExportPNG}
-        mapStyle={mapStyle}
-        onMapStyleChange={setMapStyle}
-        kartverketVisible={kartverketVisible}
-        onKartverketVisibleChange={setKartverketVisible}
-        kartverketOpacity={kartverketOpacity}
-        onKartverketOpacityChange={setKartverketOpacity}
         onZoomIn={() => zoomInRef.current?.()}
         onZoomOut={() => zoomOutRef.current?.()}
         onResetView={() => resetViewRef.current?.()}
@@ -365,6 +362,7 @@ function LoadedMap({
         mapStyle={mapStyle}
         kartverketVisible={kartverketVisible}
         kartverketOpacity={kartverketOpacity}
+        onKartverketLoadingChange={setKartverketLoading}
         selectedGardenDiameter={selectedGardenDiameter}
         selectedGardenWidth={selectedGardenWidth}
         selectedGardenName={selectedGardenName}
@@ -416,6 +414,17 @@ function LoadedMap({
           setShareId(share_id)
         }}
       />
+      <div className="fixed top-12 right-3 z-40">
+        <ViewControlsPopover
+          mapStyle={mapStyle}
+          onMapStyleChange={setMapStyle}
+          kartverketVisible={kartverketVisible}
+          onKartverketVisibleChange={setKartverketVisible}
+          kartverketOpacity={kartverketOpacity}
+          onKartverketOpacityChange={setKartverketOpacity}
+          kartverketLoading={kartverketLoading}
+        />
+      </div>
     </div>
   )
 }

@@ -9,7 +9,6 @@ import {
   Share2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Slider } from "@/components/ui/slider"
 import {
   Menubar,
   MenubarContent,
@@ -19,10 +18,7 @@ import {
   MenubarShortcut,
   MenubarTrigger,
   MenubarCheckboxItem,
-  MenubarRadioGroup,
-  MenubarRadioItem,
 } from "@/components/ui/menubar"
-import type { MapStyle } from "@/pages/MapPage"
 import type { SaveStatus } from "@/components/MapView"
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog"
 import { cn } from "@/lib/utils"
@@ -36,12 +32,6 @@ interface TopBarProps {
   onRedo: () => void
   onExportJSON: () => void
   onExportPNG: () => void
-  mapStyle: MapStyle
-  onMapStyleChange: (style: MapStyle) => void
-  kartverketVisible: boolean
-  onKartverketVisibleChange: (visible: boolean) => void
-  kartverketOpacity: number
-  onKartverketOpacityChange: (opacity: number) => void
   onZoomIn: () => void
   onZoomOut: () => void
   onResetView: () => void
@@ -64,12 +54,6 @@ export function TopBar({
   onRedo,
   onExportJSON,
   onExportPNG,
-  mapStyle,
-  onMapStyleChange,
-  kartverketVisible,
-  onKartverketVisibleChange,
-  kartverketOpacity,
-  onKartverketOpacityChange,
   onZoomIn,
   onZoomOut,
   onResetView,
@@ -141,38 +125,6 @@ export function TopBar({
         <MenubarMenu>
           <MenubarTrigger>View</MenubarTrigger>
           <MenubarContent>
-            <MenubarRadioGroup
-              value={mapStyle}
-              onValueChange={(v) => onMapStyleChange(v as MapStyle)}
-            >
-              <MenubarRadioItem value="satellite">Satellite</MenubarRadioItem>
-              <MenubarRadioItem value="street">Street</MenubarRadioItem>
-              <MenubarRadioItem value="terrain">Terrain</MenubarRadioItem>
-            </MenubarRadioGroup>
-            <MenubarSeparator />
-            <MenubarCheckboxItem
-              checked={kartverketVisible}
-              onCheckedChange={onKartverketVisibleChange}
-            >
-              Kartverket overlay
-            </MenubarCheckboxItem>
-            {kartverketVisible && (
-              <div className="px-2 py-1.5">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-muted-foreground">Opacity</span>
-                  <span className="text-xs text-muted-foreground font-mono">
-                    {Math.round(kartverketOpacity * 100)}%
-                  </span>
-                </div>
-                <Slider
-                  value={[kartverketOpacity]}
-                  min={0.1}
-                  max={1}
-                  step={0.05}
-                  onValueChange={([v]) => onKartverketOpacityChange(v)}
-                />
-              </div>
-            )}
             <MenubarCheckboxItem
               checked={areaLabelsVisible}
               onCheckedChange={onAreaLabelsVisibleChange}
