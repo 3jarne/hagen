@@ -68,35 +68,48 @@ export function fogMaskPolygon(
 
 /**
  * Fade-bånd som ligger innenfor hovedmasken og gir en mykere overgang.
- * Hver ring har sin egen opacity slik at fog-grensen ikke føles som en
- * skarp kant. Bånd-bredden er 15% av radius, totalt fire bånd.
+ * Mapbox-polygoner støtter ikke gradient-fyll, så vi simulerer det med
+ * mange tynne bånd der opacity følger en smoothstep-kurve. Fade-sonen
+ * dekker ytterste 30% av radius, fra ~70% av radius og ut til kanten.
  */
+const FADE_BANDS = 30
+const FADE_WIDTH_FRACTION = 0.3
+const MAX_FOG_OPACITY = 0.55
+
 export function fogFadeRings(
   center: [number, number],
   radiusMeters: number = FOG_RADIUS_METERS,
 ): Feature<Polygon>[] {
-  const bandWidth = radiusMeters * 0.04
-  const bands = [
-    { offset: 0, opacity: 0.42 },
-    { offset: 1, opacity: 0.3 },
-    { offset: 2, opacity: 0.18 },
-    { offset: 3, opacity: 0.08 },
-  ]
-  return bands.map(({ offset, opacity }) => {
-    const outerR = radiusMeters - offset * bandWidth
-    const innerR = radiusMeters - (offset + 1) * bandWidth
-    const outer = circleRing(center, outerR)
-    const inner = circleRing(center, innerR)
-    inner.reverse()
-    return {
+  const fadeWidth = radiusMeters * FADE_WIDTH_FRACTION
+  const innerEdge = radiusMeters - fadeWidth
+
+  // Pre-beregn ringene én gang slik at naboband deler nøyaktig samme
+  // koordinater på sin felles grense (ingen hårlinje-mellomrom).
+  const ringRadii: number[] = []
+  for (let i = 0; i <= FADE_BANDS; i++) {
+    ringRadii.push(innerEdge + (i / FADE_BANDS) * fadeWidth)
+  }
+  const rings = ringRadii.map((r) => circleRing(center, r))
+
+  const features: Feature<Polygon>[] = []
+  for (let i = 0; i < FADE_BANDS; i++) {
+    const t = (i + 0.5) / FADE_BANDS
+    // Smoothstep S-kurve: 3t² - 2t³.
+    const eased = t * t * (3 - 2 * t)
+    const opacity = eased * MAX_FOG_OPACITY
+
+    const outer = rings[i + 1]
+    const inner = [...rings[i]].reverse()
+    features.push({
       type: "Feature",
       properties: { opacity },
       geometry: {
         type: "Polygon",
         coordinates: [outer, inner],
       },
-    }
-  })
+    })
+  }
+  return features
 }
 
 /** Bbox rundt fog-sirkelen — brukes som Mapbox maxBounds. */
