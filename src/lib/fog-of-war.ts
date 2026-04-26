@@ -10,7 +10,7 @@ import type { LngLatBoundsLike } from "mapbox-gl"
  * til faktisk eiendomsgrense + 100m buffer (matrikkel-API).
  */
 
-export const FOG_RADIUS_METERS = 1000
+export const FOG_RADIUS_METERS = 500
 const EARTH_RADIUS_METERS = 6_371_000
 const CIRCLE_SEGMENTS = 96
 
