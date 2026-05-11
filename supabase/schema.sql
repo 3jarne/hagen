@@ -43,6 +43,16 @@ create index if not exists projects_share_id_idx
   on public.projects(share_id)
   where share_id is not null;
 
+-- v0.5: matrikkel-data hentet fra Kartverket.
+alter table public.projects
+  add column if not exists property_boundary jsonb;
+alter table public.projects
+  add column if not exists buildings jsonb;
+alter table public.projects
+  add column if not exists kommunenummer text;
+alter table public.projects
+  add column if not exists matrikkel_fetched_at timestamptz;
+
 -- ============================================================
 -- 2. Tabell: drawings (én rad per prosjekt)
 -- ============================================================

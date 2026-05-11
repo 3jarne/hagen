@@ -16,6 +16,7 @@ import {
   searchAddresses,
   type AddressHit,
 } from "@/lib/kartverket"
+import { fetchMatrikkelData, MatrikkelError } from "@/lib/matrikkel"
 import { createProject, type Project } from "@/lib/projects"
 
 interface Props {
@@ -105,18 +106,34 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
     setSaving(true)
     setSaveError(null)
     try {
+      const matrikkel = await fetchMatrikkelData({
+        kommunenummer: selected.kommunenummer,
+        gardsnummer: selected.gnr,
+        bruksnummer: selected.bnr,
+        center_lng: selected.lng,
+        center_lat: selected.lat,
+      })
       const project = await createProject({
         address: selected.address,
         center_lng: selected.lng,
         center_lat: selected.lat,
         gnr: selected.gnr,
         bnr: selected.bnr,
+        kommunenummer: selected.kommunenummer,
+        property_boundary: matrikkel.boundary,
+        buildings: matrikkel.buildings,
       })
       onCreated(project)
     } catch (err) {
-      setSaveError(
-        err instanceof Error ? err.message : "Kunne ikke lagre prosjekt",
-      )
+      if (err instanceof MatrikkelError) {
+        setSaveError(
+          "Kunne ikke hente eiendomsgrenser. Prøv igjen om litt.",
+        )
+      } else {
+        setSaveError(
+          err instanceof Error ? err.message : "Kunne ikke lagre prosjekt",
+        )
+      }
       setSaving(false)
     }
   }
@@ -235,7 +252,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Oppretter…
+                Henter eiendomsgrenser…
               </>
             ) : (
               "Opprett"
