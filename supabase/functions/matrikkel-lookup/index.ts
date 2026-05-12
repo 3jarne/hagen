@@ -66,6 +66,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM_WGS84 = 84
 
 const CLIENT_ID = "hageplan"
+const FN_VERSION = "v0.5.f1.3"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -170,6 +171,13 @@ async function soapCall(
 ): Promise<string> {
   const url = `${cfg.baseUrl.replace(/\/$/, "")}/${servicePath}`
   console.log(`[matrikkel] ${step} → POST ${url}`)
+  // Logg første 1500 bytes av request-body for diagnostikk.
+  console.log(
+    `[matrikkel] ${step} request body:`,
+    envelopeXml.length < 1500
+      ? envelopeXml
+      : envelopeXml.slice(0, 1500) + " … (truncated)",
+  )
 
   const ctrl = new AbortController()
   const timeoutId = setTimeout(() => ctrl.abort(), SOAP_TIMEOUT_MS)
@@ -316,9 +324,9 @@ async function findMatrikkelenhetId(
   gnr: number,
   bnr: number,
 ): Promise<string> {
-  // Matrikkel-API-et krever at alle fem matrikkel-ident-feltene er med.
-  // For vanlige eiendommer (uten festeforhold/seksjon) settes
-  // festenummer og seksjonsnummer til 0.
+  // PHP-wrapperen til iaasen sender bare kommuneIdent, gardsnummer og
+  // bruksnummer — festenummer/seksjonsnummer utelates. Server-side
+  // Java-mapping antas å tolke fravær som null/0.
   const operation = `
     <mat:findMatrikkelenhet xmlns:mat="${NS.matenhet_svc}">
       <mat:matrikkelenhetIdent>
@@ -327,8 +335,6 @@ async function findMatrikkelenhetId(
         </mat1:kommuneIdent>
         <mat1:gardsnummer>${gnr}</mat1:gardsnummer>
         <mat1:bruksnummer>${bnr}</mat1:bruksnummer>
-        <mat1:festenummer>0</mat1:festenummer>
-        <mat1:seksjonsnummer>0</mat1:seksjonsnummer>
       </mat:matrikkelenhetIdent>
       <mat:matrikkelContext>
         ${buildMatrikkelContext()}
@@ -745,7 +751,7 @@ Deno.serve(async (req: Request) => {
       ? `${username[0] ?? ""}***`
       : `${username.slice(0, 2)}***${username.slice(-2)}`
   console.log(
-    `[matrikkel] config: user=${maskedUser} (len=${username.length}), pwLen=${password.length}, url=${apiUrl}`,
+    `[matrikkel] ${FN_VERSION} config: user=${maskedUser} (len=${username.length}), pwLen=${password.length}, url=${apiUrl}`,
   )
 
   const cfg: SoapConfig = {
