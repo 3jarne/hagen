@@ -66,7 +66,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM_WGS84 = 84
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.3"
+const FN_VERSION = "v0.5.f1.4"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -324,17 +324,24 @@ async function findMatrikkelenhetId(
   gnr: number,
   bnr: number,
 ): Promise<string> {
-  // PHP-wrapperen til iaasen sender bare kommuneIdent, gardsnummer og
-  // bruksnummer — festenummer/seksjonsnummer utelates. Server-side
-  // Java-mapping antas å tolke fravær som null/0.
+  // Server-side Java-mapper kaller setFestenr(int) og setSeksjonsnr(int)
+  // reflektivt uten null-sjekk; manglende elementer gir Integer null →
+  // IllegalArgumentException ved unboxing. Begge må sendes som 0 selv
+  // for vanlige eiendommer. Verifisert i fungerende sample fra
+  // klimaetatenmagnus/PoC_Energir-dgivning.
+  // Rekkefølge er bindende: kommuneIdent, gardsnummer, bruksnummer,
+  // festenummer, seksjonsnummer.
+  const kommunenummerPadded = kommunenummer.padStart(4, "0")
   const operation = `
     <mat:findMatrikkelenhet xmlns:mat="${NS.matenhet_svc}">
       <mat:matrikkelenhetIdent>
         <mat1:kommuneIdent>
-          <kom:kommunenummer>${escapeXml(kommunenummer)}</kom:kommunenummer>
+          <kom:kommunenummer>${escapeXml(kommunenummerPadded)}</kom:kommunenummer>
         </mat1:kommuneIdent>
         <mat1:gardsnummer>${gnr}</mat1:gardsnummer>
         <mat1:bruksnummer>${bnr}</mat1:bruksnummer>
+        <mat1:festenummer>0</mat1:festenummer>
+        <mat1:seksjonsnummer>0</mat1:seksjonsnummer>
       </mat:matrikkelenhetIdent>
       <mat:matrikkelContext>
         ${buildMatrikkelContext()}
