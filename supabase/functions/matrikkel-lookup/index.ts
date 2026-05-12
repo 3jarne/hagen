@@ -87,7 +87,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM = 25833
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.9"
+const FN_VERSION = "v0.5.f1.10"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -905,11 +905,14 @@ async function performLookup(
     `[matrikkel] ${teigItems.length} teig(er), ${allGrenselinjeIds.size} unike grenselinjeId(er)`,
   )
 
-  // 5. Batch-hent alle grenselinjer
+  // 5. Batch-hent alle grenselinjer. Feltet heter `grenselinjeId` i Teig-
+  // responsen, men den formelle UML-klassen er `Teiggrense` (per
+  // kartverket/matrikkel-arkitektur), så type-attributtet må være
+  // `TeiggrenseId`.
   const grenseResp = await storeGetObjects(
     cfg,
     [...allGrenselinjeIds],
-    "GrenselinjeId",
+    "TeiggrenseId",
     "getGrenselinjer",
   )
   const grenseReturn = findKey(grenseResp, "return")
