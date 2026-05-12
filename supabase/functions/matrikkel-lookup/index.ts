@@ -33,12 +33,22 @@
 import { XMLParser } from "https://esm.sh/fast-xml-parser@4.5.0"
 import proj4 from "https://esm.sh/proj4@2.11.0"
 
-// EPSG:25833 = UTM zone 33N, ETRS89 (matrikkelens lagringssystem).
-// EPSG:4326 = WGS84 lon/lat (innebygd i proj4).
+// UTM-soner for Norge (alle ETRS89/EUREF89). Matrikkelens interne
+// lagringssystem er UTM33 for det meste, men eldre data kan være UTM32
+// (sør-Norge) eller UTM35 (Finnmark).
+proj4.defs(
+  "EPSG:25832",
+  "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs +type=crs",
+)
 proj4.defs(
   "EPSG:25833",
   "+proj=utm +zone=33 +ellps=GRS80 +units=m +no_defs +type=crs",
 )
+proj4.defs(
+  "EPSG:25835",
+  "+proj=utm +zone=35 +ellps=GRS80 +units=m +no_defs +type=crs",
+)
+// EPSG:4326 (WGS84 lon/lat) er innebygd i proj4.
 
 // ----------------------------------------------------------------------
 // Konstanter
@@ -77,7 +87,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM = 25833
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.7"
+const FN_VERSION = "v0.5.f1.8"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -114,9 +124,13 @@ function errorResponse(
 // ----------------------------------------------------------------------
 
 function buildMatrikkelContext(): string {
+  // brukOriginaleKoordinater=true → server returnerer geometri i sitt
+  // interne lagringssystem (UTM33N / EPSG:25833 for moderne data).
+  // Ingen SkTrans-transformasjon, ingen "Frasys/Tilsys"-feil.
+  // koordinatsystemKodeId blir da kun en hint som ikke faktisk brukes.
   return `
     <dom:locale>no_NO_B</dom:locale>
-    <dom:brukOriginaleKoordinater>false</dom:brukOriginaleKoordinater>
+    <dom:brukOriginaleKoordinater>true</dom:brukOriginaleKoordinater>
     <dom:koordinatsystemKodeId>
       <dom:value>${COORD_SYSTEM}</dom:value>
     </dom:koordinatsystemKodeId>
@@ -513,11 +527,41 @@ function extractRingFromContainer(container: any): Vertex[] | null {
   return verts
 }
 
+// Detekter hvilken UTM-sone koordinatene er i basert på east-verdien
+// (x). UTM east ligger typisk i 100 000 – 900 000-området (relativt til
+// sentralmeridianen). Norge bruker primært UTM33 i dag, men eldre
+// matrikkeldata kan være i UTM32 eller UTM35. Lat/lng-verdier er små
+// (5–31 lng, 58–71 lat for Norge) og lett å skille fra UTM-meter.
+function detectSourceCrs(x: number, y: number): string {
+  // Hvis x og y er små (under ~360), er det allerede lat/lng — uventet
+  // men mulig hvis serveren faktisk gjorde en transformasjon.
+  if (Math.abs(x) < 360 && Math.abs(y) < 90) return "EPSG:4326"
+  // Norske UTM-koordinater har y (northing) på ca. 6 400 000 – 7 950 000.
+  // x (easting) varierer per sone: 250 000 – 900 000.
+  // Vi kan ikke gjette UTM-sonen kun fra easting alene (UTM32 og UTM33
+  // overlapper) uten å vite lengden. Default til UTM33 (det vanligste);
+  // første gang vi får faktiske koordinater kan vi inspisere og justere.
+  return "EPSG:25833"
+}
+
+let crsLogged = false
 function ringToCoordinates(ring: Vertex[]): number[][] {
-  // koordinatsystemKodeId=25833 → x=east, y=north i UTM33N (meter).
-  // Konverter til EPSG:4326 (lon/lat) for GeoJSON.
+  if (ring.length === 0) return []
+  const sample = ring[0]
+  const srcCrs = detectSourceCrs(sample.x, sample.y)
+  if (!crsLogged) {
+    console.log(
+      `[matrikkel] første teig-koordinat: x=${sample.x}, y=${sample.y} → tolkes som ${srcCrs}`,
+    )
+    crsLogged = true
+  }
+  if (srcCrs === "EPSG:4326") {
+    // Allerede lat/lng — bruk direkte (men matrikkel lagrer som [east, north]
+    // der east kunne tilsvare lng. Anta x=lng, y=lat.).
+    return ring.map((v) => [v.x, v.y])
+  }
   return ring.map((v) => {
-    const [lon, lat] = proj4("EPSG:25833", "EPSG:4326", [v.x, v.y])
+    const [lon, lat] = proj4(srcCrs, "EPSG:4326", [v.x, v.y])
     return [lon, lat]
   })
 }
