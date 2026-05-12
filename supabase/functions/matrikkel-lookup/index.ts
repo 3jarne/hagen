@@ -316,6 +316,9 @@ async function findMatrikkelenhetId(
   gnr: number,
   bnr: number,
 ): Promise<string> {
+  // Matrikkel-API-et krever at alle fem matrikkel-ident-feltene er med.
+  // For vanlige eiendommer (uten festeforhold/seksjon) settes
+  // festenummer og seksjonsnummer til 0.
   const operation = `
     <mat:findMatrikkelenhet xmlns:mat="${NS.matenhet_svc}">
       <mat:matrikkelenhetIdent>
@@ -324,6 +327,8 @@ async function findMatrikkelenhetId(
         </mat1:kommuneIdent>
         <mat1:gardsnummer>${gnr}</mat1:gardsnummer>
         <mat1:bruksnummer>${bnr}</mat1:bruksnummer>
+        <mat1:festenummer>0</mat1:festenummer>
+        <mat1:seksjonsnummer>0</mat1:seksjonsnummer>
       </mat:matrikkelenhetIdent>
       <mat:matrikkelContext>
         ${buildMatrikkelContext()}
