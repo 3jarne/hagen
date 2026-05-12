@@ -87,7 +87,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM = 25833
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.8"
+const FN_VERSION = "v0.5.f1.9"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -416,11 +416,18 @@ async function storeGetObjects(
   // xsi:type-prefiks må refereres til en namespace som er deklarert
   // på <stor:ids>-elementet. Vi bruker "ns1" → matenhet/bygning_dom basert
   // på type.
-  const typeNs = xsiType.startsWith("Bygning")
-    ? NS.bygning_dom
-    : xsiType.startsWith("Teig")
-      ? NS.matenhet_dom
-      : NS.matenhet_dom
+  // Velg namespace for xsi:type basert på objekttype:
+  //   MatrikkelenhetId/TeigId/GrunneiendomId → matrikkelenhet
+  //   BygningId → bygning
+  //   GrenselinjeId/TeiggrenseId/FlateId → geometri
+  const typeNs =
+    xsiType.startsWith("Bygning") || xsiType.startsWith("Bygg")
+      ? NS.bygning_dom
+      : xsiType.startsWith("Grenselinje") ||
+          xsiType.startsWith("Teiggrense") ||
+          xsiType.startsWith("Flate")
+        ? NS.geom
+        : NS.matenhet_dom
 
   const items = ids
     .map(
@@ -495,36 +502,166 @@ async function findByggIds(
 }
 
 // ----------------------------------------------------------------------
-// Geometry-extraction
+// Geometry-extraction (bubble model)
 // ----------------------------------------------------------------------
+//
+// En Teig inneholder IKKE polygon-koordinater direkte. Strukturen er:
+//
+//   <Teig>
+//     <flate>
+//       <exterior>
+//         <curveDirections>
+//           <item>
+//             <signed>false</signed>
+//             <grenselinjeId><value>NN</value></grenselinjeId>
+//           </item>
+//           ... flere segmenter
+//         </curveDirections>
+//       </exterior>
+//       <interior>...</interior>   ← valgfritt, for hull
+//     </flate>
+//   </Teig>
+//
+// Hver grenselinje må hentes separat via StoreService.getObjects og
+// inneholder kurvepunkter med x/y/z. Vi stitcher segmentene sammen til
+// en lukket ring. signed-flagget indikerer om punktene skal traverseres
+// forlengs eller motsatt. Konvensjonen er ikke entydig dokumentert — vi
+// prøver begge og velger den som lukker ringen tettest.
 
 interface Vertex {
   x: number
   y: number
 }
 
-// Et "ring" i Matrikkel-API består av geom:item med x/y/z under
-// posisjon. Vi finner alle item-objekt med x og y og bygger en lukket ring.
-function extractRingFromContainer(container: any): Vertex[] | null {
-  if (!container) return null
-  // Finn alle "item"-objekter under container.
-  const candidates = findAll(container, "item")
-  const verts: Vertex[] = []
+interface CurveDir {
+  grenselinjeId: string
+  signed: boolean
+}
+
+function pointsEqual(a: Vertex, b: Vertex, tolMeters = 0.05): boolean {
+  return Math.abs(a.x - b.x) < tolMeters && Math.abs(a.y - b.y) < tolMeters
+}
+
+function distance(a: Vertex, b: Vertex): number {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+}
+
+// Trekk ut curveDirections (grenselinjeId + signed) i rekkefølge fra en
+// boundary-node (exterior eller interior).
+function extractCurveDirections(boundary: any): CurveDir[] {
+  if (!boundary || typeof boundary !== "object") return []
+  const cdNode = findKey(boundary, "curveDirections")
+  if (!cdNode || typeof cdNode !== "object") return []
+  const items = asArray((cdNode as any).item)
+  const out: CurveDir[] = []
+  for (const it of items) {
+    if (!it || typeof it !== "object") continue
+    const grIdObj = (it as any).grenselinjeId
+    if (!grIdObj || typeof grIdObj !== "object") continue
+    const grId = (grIdObj as any).value
+    if (grId == null || grId === "") continue
+    const signed = String((it as any).signed) === "true"
+    out.push({ grenselinjeId: String(grId), signed })
+  }
+  return out
+}
+
+// Hent exterior og interiors fra Teig.flate.
+function extractFlateBoundaries(teig: any): {
+  exterior: any | null
+  interiors: any[]
+} {
+  const flate = findKey(teig, "flate")
+  if (!flate || typeof flate !== "object") {
+    return { exterior: null, interiors: [] }
+  }
+  const exterior = (flate as any).exterior ?? null
+  const interiorRaw = (flate as any).interior
+  const interiors = interiorRaw ? asArray(interiorRaw) : []
+  return { exterior, interiors }
+}
+
+// Plukk ut kurvepunkter fra et Grenselinje-objekt. Feltnavnet er ikke
+// helt entydig — vi prøver flere kandidater og filtrerer på {x, y}.
+function extractKurvepunkter(grenselinje: any): Vertex[] {
+  if (!grenselinje || typeof grenselinje !== "object") return []
+  const candidates = [
+    findKey(grenselinje, "kurvepunkter"),
+    findKey(grenselinje, "kurve"),
+    findKey(grenselinje, "punkter"),
+    findKey(grenselinje, "posisjoner"),
+  ].filter(Boolean)
+
   for (const c of candidates) {
-    if (c && typeof c === "object" && c.x != null && c.y != null) {
-      const x = Number(c.x)
-      const y = Number(c.y)
-      if (Number.isFinite(x) && Number.isFinite(y)) {
-        verts.push({ x, y })
+    // findAll for å nå ned gjennom evt. wrapping (kurve.punkter, etc.)
+    const items = findAll(c, "item")
+    const verts: Vertex[] = []
+    for (const it of items) {
+      if (it && typeof it === "object" && it.x != null && it.y != null) {
+        const x = Number(it.x)
+        const y = Number(it.y)
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          verts.push({ x, y })
+        }
       }
     }
+    if (verts.length > 0) return verts
   }
-  if (verts.length < 3) return null
-  // Lukk ringen hvis ikke allerede lukket.
-  const first = verts[0]
-  const last = verts[verts.length - 1]
-  if (first.x !== last.x || first.y !== last.y) verts.push(first)
-  return verts
+  return []
+}
+
+function stitchRingOnce(
+  curveDirs: CurveDir[],
+  grenselinjeMap: Map<string, Vertex[]>,
+  flipSigned: boolean,
+): Vertex[] {
+  const ring: Vertex[] = []
+  for (const cd of curveDirs) {
+    const original = grenselinjeMap.get(cd.grenselinjeId)
+    if (!original || original.length === 0) continue
+    const reverse = flipSigned ? !cd.signed : cd.signed
+    let pts = reverse ? [...original].reverse() : original
+    if (ring.length > 0 && pts.length > 0) {
+      const last = ring[ring.length - 1]
+      if (pointsEqual(last, pts[0])) {
+        pts = pts.slice(1)
+      }
+    }
+    for (const p of pts) ring.push(p)
+  }
+  return ring
+}
+
+// Bygg en lukket ring fra curveDirections. signed-konvensjonen er
+// ikke entydig — vi prøver begge og velger den som lukker tettest.
+function stitchRing(
+  curveDirs: CurveDir[],
+  grenselinjeMap: Map<string, Vertex[]>,
+  ringLabel: string,
+): Vertex[] | null {
+  if (curveDirs.length === 0) return null
+
+  const ringA = stitchRingOnce(curveDirs, grenselinjeMap, false)
+  const ringB = stitchRingOnce(curveDirs, grenselinjeMap, true)
+
+  const closureA =
+    ringA.length >= 2 ? distance(ringA[0], ringA[ringA.length - 1]) : Infinity
+  const closureB =
+    ringB.length >= 2 ? distance(ringB[0], ringB[ringB.length - 1]) : Infinity
+
+  console.log(
+    `[matrikkel] stitch ${ringLabel}: ${curveDirs.length} segmenter, signed=forward lukker med ${closureA.toFixed(2)}m, signed=reverse lukker med ${closureB.toFixed(2)}m`,
+  )
+
+  const chosen = closureA <= closureB ? ringA : ringB
+  if (chosen.length < 3) return null
+
+  // Lukk ringen eksplisitt.
+  const first = chosen[0]
+  const last = chosen[chosen.length - 1]
+  if (!pointsEqual(first, last)) chosen.push(first)
+
+  return chosen
 }
 
 // Detekter hvilken UTM-sone koordinatene er i basert på east-verdien
@@ -566,51 +703,37 @@ function ringToCoordinates(ring: Vertex[]): number[][] {
   })
 }
 
-// Plukk ut Polygon-objekt fra et domeneobjekt (Teig eller Bygning).
-// Returnerer GeoJSON-Polygon eller null.
-function extractPolygon(domainObj: any): any | null {
-  if (!domainObj) return null
-
-  // Et Polygon har typisk én "ytreAvgrensing" og evt. "indreAvgrensing"-er.
-  // I noen objekter ligger Polygon under "omrade" / "geometri" / "flate".
-  // Vi finner første Polygon-noden vi kan se.
-  const polygonNode = findKey(domainObj, "Polygon") ?? domainObj
-
-  const ytre =
-    findKey(polygonNode, "ytreAvgrensing") ??
-    findKey(domainObj, "ytreAvgrensing")
-  const ytreRing = extractRingFromContainer(ytre)
-  if (!ytreRing) return null
-
-  const indreNodes: any[] = asArray(
-    findKey(polygonNode, "indreAvgrensing") ??
-      findKey(domainObj, "indreAvgrensing"),
-  )
-  const holes = indreNodes
-    .map((n) => extractRingFromContainer(n))
-    .filter((r): r is Vertex[] => r != null)
-
-  const coordinates = [
-    ringToCoordinates(ytreRing),
-    ...holes.map(ringToCoordinates),
-  ]
-
+// Bygg GeoJSON-Polygon fra en Teig + grenselinjeMap.
+function buildPolygonForTeig(
+  teig: any,
+  grenselinjeMap: Map<string, Vertex[]>,
+  teigLabel: string,
+): any | null {
+  const { exterior, interiors } = extractFlateBoundaries(teig)
+  if (!exterior) return null
+  const extDirs = extractCurveDirections(exterior)
+  const extRing = stitchRing(extDirs, grenselinjeMap, `${teigLabel}.exterior`)
+  if (!extRing || extRing.length < 4) return null
+  const holes: Vertex[][] = []
+  for (let i = 0; i < interiors.length; i++) {
+    const intDirs = extractCurveDirections(interiors[i])
+    const intRing = stitchRing(
+      intDirs,
+      grenselinjeMap,
+      `${teigLabel}.interior[${i}]`,
+    )
+    if (intRing && intRing.length >= 4) holes.push(intRing)
+  }
   return {
     type: "Polygon",
-    coordinates,
+    coordinates: [
+      ringToCoordinates(extRing),
+      ...holes.map(ringToCoordinates),
+    ],
   }
 }
 
-// Hent alle Teig-objekter fra et getObjects-svar og bygg union/MultiPolygon.
-function buildBoundaryFeature(teigerResp: any): any | null {
-  // Finn alle returnerte objekter — de ligger som <return><item> ...
-  const items = findAll(teigerResp, "item")
-  // Vi vil ha kun de som ser ut som Teig (har et Polygon).
-  const polygons: any[] = []
-  for (const it of items) {
-    const p = extractPolygon(it)
-    if (p) polygons.push(p)
-  }
+function buildBoundaryFeature(polygons: any[]): any | null {
   if (polygons.length === 0) return null
   if (polygons.length === 1) {
     return {
@@ -619,7 +742,6 @@ function buildBoundaryFeature(teigerResp: any): any | null {
       geometry: polygons[0],
     }
   }
-  // Flere teiger → MultiPolygon
   return {
     type: "Feature",
     properties: { source: "matrikkel-teig" },
@@ -630,25 +752,12 @@ function buildBoundaryFeature(teigerResp: any): any | null {
   }
 }
 
-function buildBuildingsFeatureCollection(byggResp: any): any {
-  const items = findAll(byggResp, "item")
-  const features: any[] = []
-  for (const it of items) {
-    const p = extractPolygon(it)
-    if (p) {
-      // Plukk ut byggnummer / bygningstype hvis mulig.
-      const id = findKey(it, "bygningsnummer") ?? findKey(it, "id")
-      features.push({
-        type: "Feature",
-        properties: {
-          source: "matrikkel-bygning",
-          ...(id != null ? { matrikkel_id: String(id) } : {}),
-        },
-        geometry: p,
-      })
-    }
-  }
-  return { type: "FeatureCollection", features }
+// Bygninger via Matrikkel-SOAP gir KUN representasjonspunkt (ett punkt
+// per bygning), ikke fotavtrykk-polygoner. Fotavtrykk må hentes fra
+// Geonorge WFS (FKB-Bygning) — separat oppgave. Inntil videre returnerer
+// vi en tom FeatureCollection.
+function buildBuildingsFeatureCollection(_byggResp: any): any {
+  return { type: "FeatureCollection", features: [] }
 }
 
 // ----------------------------------------------------------------------
@@ -740,7 +849,7 @@ async function performLookup(
     )
   }
 
-  // 3. Get teig polygons
+  // 3. Get teig objects (inneholder curveDirections, ikke polygon-koord)
   const teigIds = extractTeigIds(matObj)
   if (debug) debugInfo.teigIds = teigIds
   if (teigIds.length === 0) {
@@ -756,31 +865,94 @@ async function performLookup(
     "TeigId",
     "getTeiger",
   )
-  const boundary = buildBoundaryFeature(teigerResp)
+  const teigReturn = findKey(teigerResp, "return")
+  const teigItems =
+    teigReturn && typeof teigReturn === "object"
+      ? asArray((teigReturn as any).item)
+      : []
+  if (teigItems.length === 0) {
+    throw new SoapError(
+      "getTeiger",
+      502,
+      "Ingen Teig-objekter i StoreService-svar",
+    )
+  }
+
+  // 4. Samle grenselinjeIds fra alle teigers exterior + interiors
+  const teigCurveDirs = teigItems.map((teig: any) => {
+    const { exterior, interiors } = extractFlateBoundaries(teig)
+    return {
+      ext: extractCurveDirections(exterior),
+      ints: interiors.map(extractCurveDirections),
+    }
+  })
+  const allGrenselinjeIds = new Set<string>()
+  for (const t of teigCurveDirs) {
+    for (const cd of t.ext) allGrenselinjeIds.add(cd.grenselinjeId)
+    for (const ints of t.ints) {
+      for (const cd of ints) allGrenselinjeIds.add(cd.grenselinjeId)
+    }
+  }
+  if (debug) debugInfo.grenselinjeIds = [...allGrenselinjeIds]
+  if (allGrenselinjeIds.size === 0) {
+    throw new SoapError(
+      "extractCurveDirections",
+      502,
+      "Fant ingen grenselinjeId i Teig.flate.exterior.curveDirections",
+    )
+  }
+  console.log(
+    `[matrikkel] ${teigItems.length} teig(er), ${allGrenselinjeIds.size} unike grenselinjeId(er)`,
+  )
+
+  // 5. Batch-hent alle grenselinjer
+  const grenseResp = await storeGetObjects(
+    cfg,
+    [...allGrenselinjeIds],
+    "GrenselinjeId",
+    "getGrenselinjer",
+  )
+  const grenseReturn = findKey(grenseResp, "return")
+  const grenseItems =
+    grenseReturn && typeof grenseReturn === "object"
+      ? asArray((grenseReturn as any).item)
+      : []
+
+  const grenselinjeMap = new Map<string, Vertex[]>()
+  for (const g of grenseItems) {
+    const idNode = (g as any).id
+    const id =
+      idNode && typeof idNode === "object" ? (idNode as any).value : undefined
+    if (id == null) continue
+    const points = extractKurvepunkter(g)
+    if (points.length > 0) {
+      grenselinjeMap.set(String(id), points)
+    }
+  }
+  console.log(
+    `[matrikkel] grenselinjeMap har ${grenselinjeMap.size} av ${allGrenselinjeIds.size} forespurte grenselinjer med koordinater`,
+  )
+
+  // 6. Bygg polygon per teig
+  const polygons: any[] = []
+  for (let i = 0; i < teigItems.length; i++) {
+    const teigId = teigIds[i] ?? `teig-${i}`
+    const poly = buildPolygonForTeig(teigItems[i], grenselinjeMap, teigId)
+    if (poly) polygons.push(poly)
+  }
+  const boundary = buildBoundaryFeature(polygons)
   if (!boundary) {
     throw new SoapError(
       "buildBoundary",
       502,
-      "Klarte ikke å bygge eiendomsgrense fra Teig-respons",
+      `Klarte ikke å stitche polygon (${grenselinjeMap.size}/${allGrenselinjeIds.size} grenselinjer hentet)`,
     )
   }
 
-  // 4. Find byggIds
-  let byggIds: string[] = []
-  try {
-    byggIds = await findByggIds(cfg, matrikkelenhetId)
-  } catch (err) {
-    // Bygninger er ikke kritisk — logg men gå videre med tom collection.
-    console.warn("[matrikkel] findByggForMatrikkelenhet feilet:", err)
-  }
-  if (debug) debugInfo.byggIds = byggIds
-
-  // 5. Get bygg polygons
-  let buildings: any = { type: "FeatureCollection", features: [] }
-  if (byggIds.length > 0) {
-    const byggResp = await storeGetObjects(cfg, byggIds, "BygningId", "getBygg")
-    buildings = buildBuildingsFeatureCollection(byggResp)
-  }
+  // 7. Bygninger: matrikkel-SOAP gir ikke fotavtrykk — bare punkter.
+  // Returner tom FeatureCollection. Fotavtrykk må komme fra Geonorge
+  // FKB-Bygning WFS i en senere fase.
+  const buildings = buildBuildingsFeatureCollection(null)
 
   return {
     boundary,
