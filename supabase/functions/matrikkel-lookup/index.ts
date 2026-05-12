@@ -87,7 +87,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM = 25833
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.11"
+const FN_VERSION = "v0.5.f1.12"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -583,33 +583,68 @@ function extractFlateBoundaries(teig: any): {
   return { exterior, interiors }
 }
 
-// Plukk ut kurvepunkter fra et Grenselinje-objekt. Feltnavnet er ikke
-// helt entydig — vi prøver flere kandidater og filtrerer på {x, y}.
-function extractKurvepunkter(grenselinje: any): Vertex[] {
-  if (!grenselinje || typeof grenselinje !== "object") return []
-  const candidates = [
-    findKey(grenselinje, "kurvepunkter"),
-    findKey(grenselinje, "kurve"),
-    findKey(grenselinje, "punkter"),
-    findKey(grenselinje, "posisjoner"),
-  ].filter(Boolean)
+// Trekk ut start/end-Teiggrensepunkt-IDs og evt. intermediate
+// kurvepunkter fra et Teiggrense-objekt. Strukturen er:
+//   <Teiggrense>
+//     <kurve xsi:type="Polyline">
+//       <startpunktId><value>NN</value></startpunktId>
+//       <endpunktId><value>NN</value></endpunktId>
+//       <kurvepunkter>
+//         <item>(kun intermediate punkter for buete linjer)</item>
+//       </kurvepunkter>
+interface TeiggrenseInfo {
+  startpunktId: string | null
+  endpunktId: string | null
+  intermediate: Vertex[]
+}
 
-  for (const c of candidates) {
-    // findAll for å nå ned gjennom evt. wrapping (kurve.punkter, etc.)
-    const items = findAll(c, "item")
-    const verts: Vertex[] = []
+function extractTeiggrenseInfo(teiggrense: any): TeiggrenseInfo {
+  const out: TeiggrenseInfo = {
+    startpunktId: null,
+    endpunktId: null,
+    intermediate: [],
+  }
+  if (!teiggrense || typeof teiggrense !== "object") return out
+  const kurve = findKey(teiggrense, "kurve")
+  if (!kurve || typeof kurve !== "object") return out
+
+  const startObj = (kurve as any).startpunktId
+  if (startObj && typeof startObj === "object" && (startObj as any).value != null) {
+    out.startpunktId = String((startObj as any).value)
+  }
+  const endObj = (kurve as any).endpunktId
+  if (endObj && typeof endObj === "object" && (endObj as any).value != null) {
+    out.endpunktId = String((endObj as any).value)
+  }
+
+  // Intermediate kurvepunkter (kan være tomme for rette linjer).
+  const kp = (kurve as any).kurvepunkter
+  if (kp && typeof kp === "object") {
+    const items = findAll(kp, "item")
     for (const it of items) {
       if (it && typeof it === "object" && it.x != null && it.y != null) {
         const x = Number(it.x)
         const y = Number(it.y)
         if (Number.isFinite(x) && Number.isFinite(y)) {
-          verts.push({ x, y })
+          out.intermediate.push({ x, y })
         }
       }
     }
-    if (verts.length > 0) return verts
   }
-  return []
+  return out
+}
+
+// Plukk ut posisjon (x, y) fra et Teiggrensepunkt-objekt.
+//   <Teiggrensepunkt>
+//     <posisjon><x>...</x><y>...</y><z>...</z></posisjon>
+function extractTeiggrensepunktPos(grp: any): Vertex | null {
+  if (!grp || typeof grp !== "object") return null
+  const pos = findKey(grp, "posisjon") ?? findKey(grp, "position")
+  if (!pos || typeof pos !== "object") return null
+  const x = Number((pos as any).x)
+  const y = Number((pos as any).y)
+  if (Number.isFinite(x) && Number.isFinite(y)) return { x, y }
+  return null
 }
 
 function stitchRingOnce(
@@ -907,10 +942,7 @@ async function performLookup(
     `[matrikkel] ${teigItems.length} teig(er), ${allGrenselinjeIds.size} unike grenselinjeId(er)`,
   )
 
-  // 5. Batch-hent alle grenselinjer. Feltet heter `grenselinjeId` i Teig-
-  // responsen, men den formelle UML-klassen er `Teiggrense` (per
-  // kartverket/matrikkel-arkitektur), så type-attributtet må være
-  // `TeiggrenseId`.
+  // 5. Batch-hent alle grenselinjer (Teiggrense-objekter).
   const grenseResp = await storeGetObjects(
     cfg,
     [...allGrenselinjeIds],
@@ -923,19 +955,72 @@ async function performLookup(
       ? asArray((grenseReturn as any).item)
       : []
 
-  const grenselinjeMap = new Map<string, Vertex[]>()
+  // En Teiggrense har startpunktId + endpunktId + (evt) intermediate
+  // kurvepunkter. De faktiske x/y-koordinatene ligger i separate
+  // Teiggrensepunkt-objekter som vi må hente.
+  const teiggrenseInfo = new Map<string, TeiggrenseInfo>()
+  const allTeiggrensepunktIds = new Set<string>()
   for (const g of grenseItems) {
     const idNode = (g as any).id
     const id =
       idNode && typeof idNode === "object" ? (idNode as any).value : undefined
     if (id == null) continue
-    const points = extractKurvepunkter(g)
-    if (points.length > 0) {
-      grenselinjeMap.set(String(id), points)
-    }
+    const info = extractTeiggrenseInfo(g)
+    teiggrenseInfo.set(String(id), info)
+    if (info.startpunktId) allTeiggrensepunktIds.add(info.startpunktId)
+    if (info.endpunktId) allTeiggrensepunktIds.add(info.endpunktId)
   }
   console.log(
-    `[matrikkel] grenselinjeMap har ${grenselinjeMap.size} av ${allGrenselinjeIds.size} forespurte grenselinjer med koordinater`,
+    `[matrikkel] ${teiggrenseInfo.size} teiggrense(r), ${allTeiggrensepunktIds.size} unike Teiggrensepunkt-id(er) å hente`,
+  )
+
+  if (allTeiggrensepunktIds.size === 0) {
+    throw new SoapError(
+      "extractTeiggrenseInfo",
+      502,
+      `Fant ingen startpunktId/endpunktId i ${teiggrenseInfo.size} Teiggrense-objekter`,
+    )
+  }
+
+  // 6. Batch-hent alle Teiggrensepunkt-objekter med x/y-koordinater.
+  const punktResp = await storeGetObjects(
+    cfg,
+    [...allTeiggrensepunktIds],
+    "TeiggrensepunktId",
+    "getTeiggrensepunkter",
+  )
+  const punktReturn = findKey(punktResp, "return")
+  const punktItems =
+    punktReturn && typeof punktReturn === "object"
+      ? asArray((punktReturn as any).item)
+      : []
+  const teiggrensepunktMap = new Map<string, Vertex>()
+  for (const p of punktItems) {
+    const idNode = (p as any).id
+    const id =
+      idNode && typeof idNode === "object" ? (idNode as any).value : undefined
+    if (id == null) continue
+    const v = extractTeiggrensepunktPos(p)
+    if (v) teiggrensepunktMap.set(String(id), v)
+  }
+  console.log(
+    `[matrikkel] teiggrensepunktMap har ${teiggrensepunktMap.size} av ${allTeiggrensepunktIds.size} forespurte punkter`,
+  )
+
+  // Bygg grenselinjeMap: teiggrenseId → [start, ...intermediate, end]
+  const grenselinjeMap = new Map<string, Vertex[]>()
+  for (const [id, info] of teiggrenseInfo) {
+    const start = info.startpunktId
+      ? teiggrensepunktMap.get(info.startpunktId)
+      : undefined
+    const end = info.endpunktId
+      ? teiggrensepunktMap.get(info.endpunktId)
+      : undefined
+    if (!start || !end) continue
+    grenselinjeMap.set(id, [start, ...info.intermediate, end])
+  }
+  console.log(
+    `[matrikkel] grenselinjeMap har ${grenselinjeMap.size} av ${allGrenselinjeIds.size} grenselinjer med koordinater`,
   )
 
   // 6. Bygg polygon per teig
