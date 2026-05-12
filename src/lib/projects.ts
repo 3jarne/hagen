@@ -1,3 +1,4 @@
+import type { Feature, FeatureCollection, Polygon } from "geojson"
 import { supabase } from "@/lib/supabase"
 
 export interface Project {
@@ -10,6 +11,10 @@ export interface Project {
   zoom: number
   gnr: number | null
   bnr: number | null
+  kommunenummer: string | null
+  property_boundary: Feature<Polygon> | null
+  buildings: FeatureCollection | null
+  matrikkel_fetched_at: string | null
   sharing_enabled: boolean
   share_id: string | null
   created_at: string
@@ -22,6 +27,9 @@ export interface NewProjectInput {
   center_lat: number
   gnr: number
   bnr: number
+  kommunenummer: string
+  property_boundary: Feature<Polygon>
+  buildings: FeatureCollection
 }
 
 export async function getProject(id: string): Promise<Project | null> {
@@ -76,6 +84,10 @@ export async function createProject(
       center_lat: input.center_lat,
       gnr: input.gnr,
       bnr: input.bnr,
+      kommunenummer: input.kommunenummer,
+      property_boundary: input.property_boundary,
+      buildings: input.buildings,
+      matrikkel_fetched_at: new Date().toISOString(),
     })
     .select("*")
     .single()
