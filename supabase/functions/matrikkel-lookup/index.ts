@@ -45,6 +45,8 @@ const NS = {
     "http://matrikkel.statkart.no/matrikkelapi/wsapi/v1/domain/matrikkelenhet",
   bygning_dom:
     "http://matrikkel.statkart.no/matrikkelapi/wsapi/v1/domain/bygning",
+  kommune_dom:
+    "http://matrikkel.statkart.no/matrikkelapi/wsapi/v1/domain/kommune",
   matenhet_svc:
     "http://matrikkel.statkart.no/matrikkelapi/wsapi/v1/service/matrikkelenhet",
   store_svc:
@@ -123,6 +125,8 @@ function envelope(
     `xmlns:xsi="${NS.xsi}"`,
     `xmlns:dom="${NS.dom}"`,
     `xmlns:geom="${NS.geom}"`,
+    `xmlns:mat1="${NS.matenhet_dom}"`,
+    `xmlns:kom="${NS.kommune_dom}"`,
     ...Object.entries(extraXmlns).map(([k, v]) => `xmlns:${k}="${v}"`),
   ].join(" ")
 
@@ -315,11 +319,11 @@ async function findMatrikkelenhetId(
   const operation = `
     <mat:findMatrikkelenhet xmlns:mat="${NS.matenhet_svc}">
       <mat:matrikkelenhetIdent>
-        <dom:kommuneIdent>
-          <dom:kommunenummer>${escapeXml(kommunenummer)}</dom:kommunenummer>
-        </dom:kommuneIdent>
-        <dom:gardsnummer>${gnr}</dom:gardsnummer>
-        <dom:bruksnummer>${bnr}</dom:bruksnummer>
+        <mat1:kommuneIdent>
+          <kom:kommunenummer>${escapeXml(kommunenummer)}</kom:kommunenummer>
+        </mat1:kommuneIdent>
+        <mat1:gardsnummer>${gnr}</mat1:gardsnummer>
+        <mat1:bruksnummer>${bnr}</mat1:bruksnummer>
       </mat:matrikkelenhetIdent>
       <mat:matrikkelContext>
         ${buildMatrikkelContext()}
