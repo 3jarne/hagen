@@ -165,6 +165,7 @@ async function soapCall(
   step: string,
 ): Promise<string> {
   const url = `${cfg.baseUrl.replace(/\/$/, "")}/${servicePath}`
+  console.log(`[matrikkel] ${step} → POST ${url}`)
 
   const ctrl = new AbortController()
   const timeoutId = setTimeout(() => ctrl.abort(), SOAP_TIMEOUT_MS)
@@ -718,15 +719,25 @@ Deno.serve(async (req: Request) => {
     )
   }
 
-  const username = Deno.env.get("KARTVERKET_API_USERNAME")
-  const password = Deno.env.get("KARTVERKET_API_PASSWORD")
-  const apiUrl = Deno.env.get("KARTVERKET_API_URL")
+  const username = Deno.env.get("KARTVERKET_API_USERNAME")?.trim()
+  const password = Deno.env.get("KARTVERKET_API_PASSWORD")?.trim()
+  const apiUrl = Deno.env.get("KARTVERKET_API_URL")?.trim()
   if (!username || !password || !apiUrl) {
     return errorResponse(
       "Kartverket-API er ikke konfigurert (mangler secrets)",
       503,
     )
   }
+
+  // Logg konfig (uten å lekke passordet) slik at vi kan diagnostisere
+  // 401-feil. Brukernavnet maskeres delvis.
+  const maskedUser =
+    username.length <= 4
+      ? `${username[0] ?? ""}***`
+      : `${username.slice(0, 2)}***${username.slice(-2)}`
+  console.log(
+    `[matrikkel] config: user=${maskedUser} (len=${username.length}), pwLen=${password.length}, url=${apiUrl}`,
+  )
 
   const cfg: SoapConfig = {
     baseUrl: apiUrl,
