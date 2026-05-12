@@ -87,7 +87,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM = 25833
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.10"
+const FN_VERSION = "v0.5.f1.11"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -417,15 +417,17 @@ async function storeGetObjects(
   // på <stor:ids>-elementet. Vi bruker "ns1" → matenhet/bygning_dom basert
   // på type.
   // Velg namespace for xsi:type basert på objekttype:
-  //   MatrikkelenhetId/TeigId/GrunneiendomId → matrikkelenhet
+  //   MatrikkelenhetId/TeigId/GrunneiendomId/TeiggrenseId → matrikkelenhet
   //   BygningId → bygning
-  //   GrenselinjeId/TeiggrenseId/FlateId → geometri
+  //   FlateId/Polygon-typer → geometri (separat domene)
+  //
+  // OBS: Teiggrense ligger i matrikkelenhet-domenet (per UML
+  // EARoot/EA8/EA882), selv om feltet grenselinjeId i Teig-responsen
+  // bærer geometri-NS-prefiks. Forveksling her gir "Cannot resolve type".
   const typeNs =
     xsiType.startsWith("Bygning") || xsiType.startsWith("Bygg")
       ? NS.bygning_dom
-      : xsiType.startsWith("Grenselinje") ||
-          xsiType.startsWith("Teiggrense") ||
-          xsiType.startsWith("Flate")
+      : xsiType.startsWith("Flate")
         ? NS.geom
         : NS.matenhet_dom
 
