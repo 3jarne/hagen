@@ -31,6 +31,14 @@
 // @ts-nocheck — kjøres i Deno-miljø, ikke i prosjektets TS-kontekst.
 
 import { XMLParser } from "https://esm.sh/fast-xml-parser@4.5.0"
+import proj4 from "https://esm.sh/proj4@2.11.0"
+
+// EPSG:25833 = UTM zone 33N, ETRS89 (matrikkelens lagringssystem).
+// EPSG:4326 = WGS84 lon/lat (innebygd i proj4).
+proj4.defs(
+  "EPSG:25833",
+  "+proj=utm +zone=33 +ellps=GRS80 +units=m +no_defs +type=crs",
+)
 
 // ----------------------------------------------------------------------
 // Konstanter
@@ -61,12 +69,15 @@ const SERVICE_PATH = {
   bygning: "BygningServiceWS",
 }
 
-// 84 = EUREF89 geografisk 2D (lon/lat). Mapbox/Leaflet bruker EPSG:4326
-// som er ~1 m forskjellig fra EUREF89 — irrelevant for hageplanlegging.
-const COORD_SYSTEM_WGS84 = 84
+// 25833 = EPSG-koden for UTM zone 33N (ETRS89). Matrikkelens interne
+// lagringssystem. Forsøk på å la serveren transformere til lon/lat
+// (kode 84 fra Trondheim-eksempelet) gir "kode 35: feil tilsys" —
+// så vi henter koordinater i UTM33N og konverterer til WGS84 selv
+// via proj4.
+const COORD_SYSTEM = 25833
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.6"
+const FN_VERSION = "v0.5.f1.7"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -107,7 +118,7 @@ function buildMatrikkelContext(): string {
     <dom:locale>no_NO_B</dom:locale>
     <dom:brukOriginaleKoordinater>false</dom:brukOriginaleKoordinater>
     <dom:koordinatsystemKodeId>
-      <dom:value>${COORD_SYSTEM_WGS84}</dom:value>
+      <dom:value>${COORD_SYSTEM}</dom:value>
     </dom:koordinatsystemKodeId>
     <dom:systemVersion>trunk</dom:systemVersion>
     <dom:klientIdentifikasjon>${CLIENT_ID}</dom:klientIdentifikasjon>
@@ -503,8 +514,12 @@ function extractRingFromContainer(container: any): Vertex[] | null {
 }
 
 function ringToCoordinates(ring: Vertex[]): number[][] {
-  // koordinatsystemKodeId=84 → x=lon, y=lat
-  return ring.map((v) => [v.x, v.y])
+  // koordinatsystemKodeId=25833 → x=east, y=north i UTM33N (meter).
+  // Konverter til EPSG:4326 (lon/lat) for GeoJSON.
+  return ring.map((v) => {
+    const [lon, lat] = proj4("EPSG:25833", "EPSG:4326", [v.x, v.y])
+    return [lon, lat]
+  })
 }
 
 // Plukk ut Polygon-objekt fra et domeneobjekt (Teig eller Bygning).
