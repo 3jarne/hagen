@@ -66,7 +66,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM_WGS84 = 84
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.4"
+const FN_VERSION = "v0.5.f1.5"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -214,8 +214,12 @@ async function soapCall(
   console.log(
     `[matrikkel] ${step} → HTTP ${res.status}, ${text.length} bytes`,
   )
-  if (text.length < 4000) console.log(`[matrikkel] ${step} body:`, text)
-  else console.log(`[matrikkel] ${step} body (first 4000):`, text.slice(0, 4000))
+  if (text.length < 25000) console.log(`[matrikkel] ${step} body:`, text)
+  else
+    console.log(
+      `[matrikkel] ${step} body (first 25000):`,
+      text.slice(0, 25000),
+    )
 
   if (res.status === 401 || res.status === 403) {
     throw new SoapError(
@@ -588,8 +592,11 @@ function buildBuildingsFeatureCollection(byggResp: any): any {
 // ----------------------------------------------------------------------
 
 function extractTeigIds(matObj: any): string[] {
-  // Matrikkelenhet refererer til teiger via "teigIds" eller "teiger".
+  // Grunneiendom refererer til teiger via "teigerForMatrikkelenhet"
+  // (verifisert i prodtest-respons). Andre subtyper kan bruke andre
+  // feltnavn — vi prøver flere alternativer.
   const teigerNode =
+    findKey(matObj, "teigerForMatrikkelenhet") ??
     findKey(matObj, "teigIds") ??
     findKey(matObj, "teiger") ??
     findKey(matObj, "teigList")
