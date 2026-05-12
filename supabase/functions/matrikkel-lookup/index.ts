@@ -66,7 +66,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM_WGS84 = 84
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.5"
+const FN_VERSION = "v0.5.f1.6"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -453,14 +453,19 @@ async function findByggIds(
   )
 
   const parsed = parseXml(respText)
-  // Returverdien er typisk en liste av BygningId-er: <return><item><value>NN</value></item>...</return>
-  const items = findAll(parsed, "item")
+  // Returverdien er en liste av BygningId-er: <return><item><value>NN</value></item>...</return>
+  // Vi henter items direkte fra <return> for å unngå å plukke opp
+  // metadata-items eller andre nestede strukturer.
+  const ret = findKey(parsed, "return")
+  const items = ret && typeof ret === "object" ? asArray((ret as any).item) : []
   const ids: string[] = []
   for (const it of items) {
-    const v = it && typeof it === "object" ? it.value : it
-    if (v != null && v !== "") ids.push(String(v))
+    // Item kan være enten { value: "NN" } eller en streng.
+    if (it && typeof it === "object" && "value" in (it as any)) {
+      const v = (it as any).value
+      if (v != null && v !== "") ids.push(String(v))
+    }
   }
-  // Dedupliser, behold rekkefølge.
   return Array.from(new Set(ids))
 }
 
@@ -592,18 +597,26 @@ function buildBuildingsFeatureCollection(byggResp: any): any {
 // ----------------------------------------------------------------------
 
 function extractTeigIds(matObj: any): string[] {
-  // Grunneiendom refererer til teiger via "teigerForMatrikkelenhet"
-  // (verifisert i prodtest-respons). Andre subtyper kan bruke andre
-  // feltnavn — vi prøver flere alternativer.
-  const teigerNode =
-    findKey(matObj, "teigerForMatrikkelenhet") ??
-    findKey(matObj, "teigIds") ??
-    findKey(matObj, "teiger") ??
-    findKey(matObj, "teigList")
-  const items = teigerNode ? findAll(teigerNode, "item") : []
+  // Strukturen er:
+  //   <teigerForMatrikkelenhet>
+  //     <item>
+  //       <metadata>...</metadata>   ← feltnavn-liste, IGNORERES
+  //       <teigId><value>NN</value></teigId>
+  //       <id>NN</id>                ← TeigForMatrikkelenhet-relasjons-id
+  //       <hovedteig>true</hovedteig>
+  //     </item>
+  //   </teigerForMatrikkelenhet>
+  // Vi trekker ut teigId.value fra hver direkte item — IKKE rekursivt,
+  // siden metadata-blokken inneholder item-elementer med feltnavn.
+  const teigerNode = findKey(matObj, "teigerForMatrikkelenhet")
+  if (!teigerNode || typeof teigerNode !== "object") return []
+  const items = asArray((teigerNode as any).item)
   const ids: string[] = []
   for (const it of items) {
-    const v = it && typeof it === "object" ? it.value : it
+    if (!it || typeof it !== "object") continue
+    const teigIdObj = (it as any).teigId
+    if (!teigIdObj || typeof teigIdObj !== "object") continue
+    const v = (teigIdObj as any).value
     if (v != null && v !== "") ids.push(String(v))
   }
   return Array.from(new Set(ids))
