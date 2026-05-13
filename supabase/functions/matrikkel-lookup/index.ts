@@ -87,7 +87,7 @@ const SERVICE_PATH = {
 const COORD_SYSTEM = 25833
 
 const CLIENT_ID = "hageplan"
-const FN_VERSION = "v0.5.f1.12"
+const FN_VERSION = "v0.5.f1.13"
 const SOAP_TIMEOUT_MS = 30_000
 
 const CORS_HEADERS: Record<string, string> = {
@@ -634,17 +634,46 @@ function extractTeiggrenseInfo(teiggrense: any): TeiggrenseInfo {
   return out
 }
 
-// Plukk ut posisjon (x, y) fra et Teiggrensepunkt-objekt.
+// Mapping fra matrikkelens interne koordinatsystem-kode til EPSG.
+// Observert fra prodtest-respons. Eldre eiendommer i sør-/sentral-Norge
+// (Akershus/Innlandet/Oslo) er typisk i UTM32 (kode 10). Etter 2020 er
+// nye eiendommer i UTM33. Utvid kartleggingen når vi ser nye koder.
+const KOORDSYS_TO_EPSG: Record<string, string> = {
+  "10": "EPSG:25832", // UTM zone 32, ETRS89 (sentralmeridian 9°E)
+  "11": "EPSG:25833", // UTM zone 33, ETRS89 (sentralmeridian 15°E) — antagelse
+  "12": "EPSG:25835", // UTM zone 35, ETRS89 (sentralmeridian 27°E) — antagelse
+  "25832": "EPSG:25832",
+  "25833": "EPSG:25833",
+  "25835": "EPSG:25835",
+}
+
+interface VertexWithCrs extends Vertex {
+  srcCrs: string
+}
+
+// Plukk ut posisjon (x, y) og koordinatsystem fra et Teiggrensepunkt.
 //   <Teiggrensepunkt>
-//     <posisjon><x>...</x><y>...</y><z>...</z></posisjon>
-function extractTeiggrensepunktPos(grp: any): Vertex | null {
+//     <koordinatsystemKodeId><value>10</value></koordinatsystemKodeId>
+//     <posisjon><x>...</x><y>...</y></posisjon>
+function extractTeiggrensepunktPos(grp: any): VertexWithCrs | null {
   if (!grp || typeof grp !== "object") return null
   const pos = findKey(grp, "posisjon") ?? findKey(grp, "position")
   if (!pos || typeof pos !== "object") return null
   const x = Number((pos as any).x)
   const y = Number((pos as any).y)
-  if (Number.isFinite(x) && Number.isFinite(y)) return { x, y }
-  return null
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+
+  // Les koordinatsystem fra punktet selv hvis tilstede.
+  const kodeIdNode = findKey(grp, "koordinatsystemKodeId")
+  let kodeId: string | null = null
+  if (kodeIdNode && typeof kodeIdNode === "object") {
+    const v = (kodeIdNode as any).value
+    if (v != null) kodeId = String(v)
+  }
+  const srcCrs =
+    (kodeId && KOORDSYS_TO_EPSG[kodeId]) ?? "EPSG:25833"
+
+  return { x, y, srcCrs }
 }
 
 function stitchRingOnce(
@@ -721,20 +750,18 @@ function detectSourceCrs(x: number, y: number): string {
 let crsLogged = false
 function ringToCoordinates(ring: Vertex[]): number[][] {
   if (ring.length === 0) return []
-  const sample = ring[0]
-  const srcCrs = detectSourceCrs(sample.x, sample.y)
-  if (!crsLogged) {
-    console.log(
-      `[matrikkel] første teig-koordinat: x=${sample.x}, y=${sample.y} → tolkes som ${srcCrs}`,
-    )
-    crsLogged = true
-  }
-  if (srcCrs === "EPSG:4326") {
-    // Allerede lat/lng — bruk direkte (men matrikkel lagrer som [east, north]
-    // der east kunne tilsvare lng. Anta x=lng, y=lat.).
-    return ring.map((v) => [v.x, v.y])
-  }
   return ring.map((v) => {
+    // Per-punkt-CRS hvis tilgjengelig (fra Teiggrensepunkt-responsen);
+    // ellers prøv å detektere fra koordinatområde, default UTM33.
+    const srcCrs =
+      (v as VertexWithCrs).srcCrs ?? detectSourceCrs(v.x, v.y)
+    if (!crsLogged) {
+      console.log(
+        `[matrikkel] første koordinat: x=${v.x}, y=${v.y}, srcCrs=${srcCrs}`,
+      )
+      crsLogged = true
+    }
+    if (srcCrs === "EPSG:4326") return [v.x, v.y]
     const [lon, lat] = proj4(srcCrs, "EPSG:4326", [v.x, v.y])
     return [lon, lat]
   })
