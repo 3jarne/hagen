@@ -34,6 +34,9 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   const [searchError, setSearchError] = useState<string | null>(null)
   const [selected, setSelected] = useState<AddressHit | null>(null)
   const [saving, setSaving] = useState(false)
+  const [savingStep, setSavingStep] = useState<
+    "idle" | "matrikkel" | "osm" | "lagrer"
+  >("idle")
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const resetAll = () => {
@@ -43,6 +46,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
     setSearchError(null)
     setSelected(null)
     setSaving(false)
+    setSavingStep("idle")
     setSaveError(null)
   }
 
@@ -108,6 +112,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
     setSaving(true)
     setSaveError(null)
     try {
+      setSavingStep("matrikkel")
       const matrikkel = await fetchMatrikkelData({
         kommunenummer: selected.kommunenummer,
         gardsnummer: selected.gnr,
@@ -132,8 +137,10 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
       // brukeren får en diskret melding der.
       let osmFailed = false
       try {
+        setSavingStep("osm")
         const osm = await fetchOsmBuildings(matrikkel.boundary)
         if (osm.length > 0) {
+          setSavingStep("lagrer")
           const features = osm.map(osmBuildingToFeature)
           await saveDrawing(project.id, {
             drawFeatures: features,
@@ -158,8 +165,18 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
         )
       }
       setSaving(false)
+      setSavingStep("idle")
     }
   }
+
+  const savingLabel =
+    savingStep === "matrikkel"
+      ? "Henter eiendomsgrense…"
+      : savingStep === "osm"
+        ? "Henter bygninger…"
+        : savingStep === "lagrer"
+          ? "Lagrer…"
+          : "Oppretter…"
 
   const displayedHits = selected ? [] : hits
   const showNoResults =
@@ -275,7 +292,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Henter eiendomsgrenser…
+                {savingLabel}
               </>
             ) : (
               "Opprett"
