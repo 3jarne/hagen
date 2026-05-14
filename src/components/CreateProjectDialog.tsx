@@ -35,7 +35,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   const [selected, setSelected] = useState<AddressHit | null>(null)
   const [saving, setSaving] = useState(false)
   const [savingStep, setSavingStep] = useState<
-    "idle" | "matrikkel" | "osm" | "lagrer"
+    "idle" | "matrikkel" | "osm"
   >("idle")
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -140,7 +140,6 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
         setSavingStep("osm")
         const osm = await fetchOsmBuildings(matrikkel.boundary)
         if (osm.length > 0) {
-          setSavingStep("lagrer")
           const features = osm.map(osmBuildingToFeature)
           await saveDrawing(project.id, {
             drawFeatures: features,
@@ -174,9 +173,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
       ? "Henter eiendomsgrense…"
       : savingStep === "osm"
         ? "Henter bygninger…"
-        : savingStep === "lagrer"
-          ? "Lagrer…"
-          : "Oppretter…"
+        : "Oppretter…"
 
   const displayedHits = selected ? [] : hits
   const showNoResults =
