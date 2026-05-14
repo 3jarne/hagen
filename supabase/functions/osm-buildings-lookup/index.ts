@@ -19,7 +19,7 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ]
-const OVERPASS_TIMEOUT_MS = 20_000
+const OVERPASS_TIMEOUT_MS = 25_000
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -71,30 +71,78 @@ function extractOuterRing(g: BoundaryGeom): number[][] | null {
   return null
 }
 
-// OSM poly-filter forventer "lat lng lat lng ..." (motsatt rekkefølge
-// av GeoJSON som er [lng, lat]).
-function buildPolyFilter(ring: number[][]): string {
-  const parts: string[] = []
+interface Bbox {
+  minLat: number
+  minLng: number
+  maxLat: number
+  maxLng: number
+}
+
+function computeBbox(ring: number[][]): Bbox | null {
+  let minLng = Infinity
+  let minLat = Infinity
+  let maxLng = -Infinity
+  let maxLat = -Infinity
   for (const c of ring) {
     if (Array.isArray(c) && c.length >= 2) {
       const lng = Number(c[0])
       const lat = Number(c[1])
       if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        // 6 desimaler ≈ 0.1m presisjon — tilstrekkelig for poly-filter.
-        parts.push(`${lat.toFixed(6)} ${lng.toFixed(6)}`)
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
       }
     }
   }
-  return parts.join(" ")
+  if (!Number.isFinite(minLng) || !Number.isFinite(minLat)) return null
+  return { minLat, minLng, maxLat, maxLng }
 }
 
-function buildOverpassQuery(polyFilter: string): string {
-  // Hent ways med building=* innenfor polygonet. `out geom;` returnerer
-  // geometri direkte som lat/lon-liste. Relations utelates i Fase 1 —
-  // de fleste norske husholdninger har bygninger som enkle ways.
-  return `[out:json][timeout:18];
-way["building"](poly:"${polyFilter}");
+function buildOverpassQuery(bbox: Bbox): string {
+  // bbox-filter er mye raskere på Overpass enn poly:-filter. Vi henter
+  // alle bygninger i bbox og post-filtrerer på centroid-i-polygon i denne
+  // Edge Function. Out-format `geom` returnerer geometri inline.
+  // Relations utelates i Fase 1.
+  const { minLat, minLng, maxLat, maxLng } = bbox
+  return `[out:json][timeout:20];
+way["building"](${minLat.toFixed(6)},${minLng.toFixed(6)},${maxLat.toFixed(6)},${maxLng.toFixed(6)});
 out geom;`
+}
+
+/** Ray-casting: er punktet inni ringen? */
+function pointInRing(point: [number, number], ring: number[][]): boolean {
+  const [x, y] = point
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0]
+    const yi = ring[i][1]
+    const xj = ring[j][0]
+    const yj = ring[j][1]
+    const intersect =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-12) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+/** Sentroid (gjennomsnitt) av en polygon-ring. Lukke-punktet ekskluderes. */
+function ringCentroid(ring: number[][]): [number, number] {
+  let sx = 0
+  let sy = 0
+  // Hopp over siste punkt hvis det er en lukke-duplikat.
+  const last = ring.length - 1
+  const skipLast =
+    ring.length > 1 &&
+    ring[0][0] === ring[last][0] &&
+    ring[0][1] === ring[last][1]
+  const n = skipLast ? ring.length - 1 : ring.length
+  for (let i = 0; i < n; i++) {
+    sx += ring[i][0]
+    sy += ring[i][1]
+  }
+  return [sx / n, sy / n]
 }
 
 // ----------------------------------------------------------------------
@@ -211,14 +259,14 @@ Deno.serve(async (req: Request) => {
     return errorResponse("Ugyldig boundary — mangler ytre ring", 400)
   }
 
-  const polyFilter = buildPolyFilter(ring)
-  if (!polyFilter) {
-    return errorResponse("Klarte ikke å bygge poly-filter", 400)
+  const bbox = computeBbox(ring)
+  if (!bbox) {
+    return errorResponse("Klarte ikke å beregne bbox fra grensen", 400)
   }
-  const query = buildOverpassQuery(polyFilter)
+  const query = buildOverpassQuery(bbox)
   console.log(
-    `[osm-buildings] query (${ring.length} punkter):`,
-    query.slice(0, 500),
+    `[osm-buildings] bbox-query for ${ring.length}-punkts polygon:`,
+    query.replace(/\n/g, " "),
   )
 
   let osm: any
@@ -233,16 +281,22 @@ Deno.serve(async (req: Request) => {
   }
 
   const elements: OsmWay[] = Array.isArray(osm?.elements) ? osm.elements : []
-  console.log(`[osm-buildings] Overpass returnerte ${elements.length} elementer`)
+  console.log(`[osm-buildings] Overpass returnerte ${elements.length} elementer i bbox`)
 
+  // Post-filter: bare behold bygninger der sentroiden ligger inni
+  // eiendomsgrensens ytre ring. bbox-queryen tar med ekstra bygninger
+  // utenfor eiendommen som vi må filtrere vekk.
   const buildings: ReturnType<typeof wayToPolygon>[] = []
   for (const el of elements) {
     if (el.type !== "way") continue
     const poly = wayToPolygon(el)
-    if (poly) buildings.push(poly)
+    if (!poly) continue
+    const centroid = ringCentroid(poly.geometry.coordinates[0])
+    if (!pointInRing(centroid, ring)) continue
+    buildings.push(poly)
   }
   console.log(
-    `[osm-buildings] ${buildings.length} bygninger konvertert til GeoJSON`,
+    `[osm-buildings] ${buildings.length} bygninger innenfor eiendomsgrensen etter sentroide-filter`,
   )
 
   return jsonResponse({ buildings })
