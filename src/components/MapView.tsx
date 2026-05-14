@@ -21,7 +21,6 @@ import { distanceMeters, formatDistance } from "@/lib/measurement"
 import { simplify } from "@/lib/simplify"
 import type { PanelMode, MapStyle } from "@/pages/MapPage"
 import {
-  addKartverketLayer,
   addAreaLabelsLayer,
   addTextLabelsLayers,
   addLineFeatureLayers,
@@ -53,8 +52,6 @@ interface MapViewProps {
   projectId: string
   projectCenter: [number, number]
   projectZoom: number
-  projectGnr: number | null
-  projectBnr: number | null
   propertyBoundary: Feature<Polygon> | null
   initialDrawings: DrawingData
   onSaveStatusChange: (status: SaveStatus) => void
@@ -80,9 +77,6 @@ interface MapViewProps {
   exportJSONRef: React.MutableRefObject<(() => void) | null>
   exportPNGRef: React.MutableRefObject<(() => void) | null>
   mapStyle: MapStyle
-  kartverketVisible: boolean
-  kartverketOpacity: number
-  onKartverketLoadingChange?: (loading: boolean) => void
   selectedGardenDiameter: number | null
   selectedGardenWidth: number | null
   selectedGardenName: string | null
@@ -107,8 +101,6 @@ export function MapView({
   projectId,
   projectCenter,
   projectZoom,
-  projectGnr,
-  projectBnr,
   propertyBoundary,
   initialDrawings,
   onSaveStatusChange,
@@ -134,9 +126,6 @@ export function MapView({
   exportJSONRef,
   exportPNGRef,
   mapStyle,
-  kartverketVisible,
-  kartverketOpacity,
-  onKartverketLoadingChange,
   selectedGardenDiameter,
   selectedGardenWidth,
   selectedGardenName,
@@ -243,39 +232,6 @@ export function MapView({
   useEffect(() => {
     activeToolRef.current = activeTool
   }, [activeTool])
-
-  const addUserPlotLayer = useCallback(
-    async (map: mapboxgl.Map) => {
-      if (projectGnr == null || projectBnr == null) return
-      try {
-        const url = `https://wfs.geonorge.no/skwfs/wfs.matrikkelkart?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=Eiendomskart:Teig&CQL_FILTER=gaardsnummer=${projectGnr}%20AND%20bruksnummer=${projectBnr}&SRSNAME=EPSG:4326&outputFormat=application/json`
-        const response = await fetch(url)
-        if (!response.ok) return
-        const data = (await response.json()) as GeoJSON.FeatureCollection
-        if (!data.features || data.features.length === 0) return
-        if (!map.getSource("user-plot")) {
-          map.addSource("user-plot", { type: "geojson", data })
-          map.addLayer({
-            id: "user-plot-fill",
-            type: "fill",
-            source: "user-plot",
-            paint: { "fill-color": "#f59e0b", "fill-opacity": 0.15 },
-          })
-          map.addLayer({
-            id: "user-plot-line",
-            type: "line",
-            source: "user-plot",
-            paint: { "line-color": "#f59e0b", "line-width": 2 },
-          })
-        } else {
-          ;(map.getSource("user-plot") as mapboxgl.GeoJSONSource).setData(data)
-        }
-      } catch (err) {
-        console.error("[eiendom] fetch failed", err)
-      }
-    },
-    [projectGnr, projectBnr],
-  )
 
   /** Debounced save to Supabase */
   const saveToStorage = useCallback(() => {
@@ -1060,11 +1016,6 @@ export function MapView({
       registerGardenPatterns(map)
 
       // Add all custom layers
-      addKartverketLayer(map, {
-        visible: kartverketVisible,
-        opacity: kartverketOpacity,
-      })
-      addUserPlotLayer(map)
       addPropertyBoundaryLayer(map, propertyBoundary)
       addAreaLabelsLayer(map, { visible: areaLabelsVisible })
       addTextLabelsLayers(map)
@@ -2487,8 +2438,6 @@ export function MapView({
 
     map.once("style.load", () => {
       restoreLayersAfterStyleChange(map, {
-        kartverketOpacity,
-        kartverketVisible,
         propertyBoundary,
         fogMask: fogMaskPolygon(
           bufferedBoundary(
@@ -2499,7 +2448,6 @@ export function MapView({
           propertyBoundary ?? fallbackCircleBoundary(projectCenter),
         ),
       })
-      addUserPlotLayer(map)
 
       // Restore draw features
       if (draw) {
@@ -2526,43 +2474,6 @@ export function MapView({
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapStyle])
-
-  // Kartverket overlay visibility, opacity, and loading detection
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (!map.getLayer("kartverket-topo")) return
-    // Bruk opacity-basert toggle slik at Mapbox fortsetter å hente
-    // tiles ved zoom-endringer — visibility:none ville stoppe
-    // tile-evalueringen og skape "ingen endring etter zoom"-bug.
-    if (kartverketVisible) {
-      map.setLayoutProperty("kartverket-topo", "visibility", "visible")
-    }
-    map.setPaintProperty(
-      "kartverket-topo",
-      "raster-opacity",
-      kartverketVisible ? kartverketOpacity : 0
-    )
-    if (!kartverketVisible) {
-      onKartverketLoadingChange?.(false)
-      return
-    }
-    onKartverketLoadingChange?.(true)
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-    const finish = () => {
-      onKartverketLoadingChange?.(false)
-      map.off("idle", finish)
-      if (timeoutId) clearTimeout(timeoutId)
-    }
-    map.once("idle", finish)
-    // Fallback for utlandet: Kartverket blokkerer utenlandsk trafikk og
-    // tiles vil aldri komme. Klarér spinneren uansett etter 12s.
-    timeoutId = setTimeout(finish, 12_000)
-    return () => {
-      map.off("idle", finish)
-      if (timeoutId) clearTimeout(timeoutId)
-    }
-  }, [kartverketVisible, kartverketOpacity, onKartverketLoadingChange])
 
   // Area labels visibility
   useEffect(() => {

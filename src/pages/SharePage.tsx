@@ -82,9 +82,6 @@ interface SharedMapProps {
 function SharedMap({ project, drawings: initialDrawings }: SharedMapProps) {
   const [drawings, setDrawings] = useState<DrawingData>(initialDrawings)
   const [mapStyle, setMapStyle] = useState<MapStyle>("satellite")
-  const [kartverketVisible, setKartverketVisible] = useState(false)
-  const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
-  const [kartverketLoading, setKartverketLoading] = useState(false)
 
   // Realtime: lytt på drawings-endringer for dette prosjektet og
   // oppdater visningen automatisk når eier tegner.
@@ -139,25 +136,15 @@ function SharedMap({ project, drawings: initialDrawings }: SharedMapProps) {
       <MapShareView
         projectCenter={[project.center_lng, project.center_lat]}
         projectZoom={project.zoom}
-        projectGnr={project.gnr}
-        projectBnr={project.bnr}
         propertyBoundary={project.property_boundary}
         drawings={drawings}
         mapStyle={mapStyle}
-        kartverketVisible={kartverketVisible}
-        kartverketOpacity={kartverketOpacity}
-        onKartverketLoadingChange={setKartverketLoading}
       />
 
       <div className="fixed top-12 right-3 z-40">
         <ViewControlsPopover
           mapStyle={mapStyle}
           onMapStyleChange={setMapStyle}
-          kartverketVisible={kartverketVisible}
-          onKartverketVisibleChange={setKartverketVisible}
-          kartverketOpacity={kartverketOpacity}
-          onKartverketOpacityChange={setKartverketOpacity}
-          kartverketLoading={kartverketLoading}
         />
       </div>
     </div>
