@@ -141,6 +141,7 @@ function SharedMap({ project, drawings: initialDrawings }: SharedMapProps) {
         projectZoom={project.zoom}
         projectGnr={project.gnr}
         projectBnr={project.bnr}
+        propertyBoundary={project.property_boundary}
         drawings={drawings}
         mapStyle={mapStyle}
         kartverketVisible={kartverketVisible}

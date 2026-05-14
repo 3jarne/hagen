@@ -592,6 +592,36 @@ export function addSolkompassLayers(map: Map) {
 }
 
 /**
+ * Tegn eiendomsgrense fra matrikkel (lagret som GeoJSON Polygon i
+ * projects.property_boundary) som stiplet amber linje. Alltid synlig.
+ * Erstatter Geonorge WFS-overlayet fra v0.4.
+ */
+export function addPropertyBoundaryLayer(
+  map: Map,
+  boundary: Feature<Polygon> | null | undefined,
+) {
+  if (!boundary) return
+  if (!map.getSource("property-boundary")) {
+    map.addSource("property-boundary", { type: "geojson", data: boundary })
+    map.addLayer({
+      id: "property-boundary-line",
+      type: "line",
+      source: "property-boundary",
+      paint: {
+        "line-color": "#f59e0b",
+        "line-width": 2.5,
+        "line-dasharray": [3, 2],
+        "line-opacity": 0.95,
+      },
+    })
+  } else {
+    ;(
+      map.getSource("property-boundary") as import("mapbox-gl").GeoJSONSource
+    ).setData(boundary)
+  }
+}
+
+/**
  * Fetch eiendomsgrense (gnr/bnr) fra Geonorge WFS og tegn som overlay.
  * Stille fail hvis grensen ikke kan hentes (f.eks. utenlandsk IP).
  */
@@ -706,6 +736,7 @@ export function restoreLayersAfterStyleChange(
   opts?: {
     kartverketOpacity?: number
     kartverketVisible?: boolean
+    propertyBoundary?: Feature<Polygon> | null
     fogMask?: Feature<Polygon>
     fogFadeRings?: Feature<Polygon>[]
   }
@@ -715,6 +746,9 @@ export function restoreLayersAfterStyleChange(
     opacity: opts?.kartverketOpacity,
     visible: opts?.kartverketVisible,
   })
+  if (opts?.propertyBoundary) {
+    addPropertyBoundaryLayer(map, opts.propertyBoundary)
+  }
   addAreaLabelsLayer(map)
   addTextLabelsLayers(map)
   addLineFeatureLayers(map)

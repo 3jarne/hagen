@@ -32,6 +32,7 @@ import {
   addSolkompassLayers,
   addObjectShadowsLayer,
   addFogOfWarLayer,
+  addPropertyBoundaryLayer,
 } from "@/lib/map-layers"
 import { saveDrawing, type DrawingData } from "@/lib/drawings"
 import { exportJSON, exportPNG } from "@/lib/export"
@@ -52,6 +53,7 @@ interface MapViewProps {
   projectZoom: number
   projectGnr: number | null
   projectBnr: number | null
+  propertyBoundary: Feature<Polygon> | null
   initialDrawings: DrawingData
   onSaveStatusChange: (status: SaveStatus) => void
   onZoomChange: (zoom: number) => void
@@ -105,6 +107,7 @@ export function MapView({
   projectZoom,
   projectGnr,
   projectBnr,
+  propertyBoundary,
   initialDrawings,
   onSaveStatusChange,
   onZoomChange,
@@ -1057,6 +1060,7 @@ export function MapView({
         opacity: kartverketOpacity,
       })
       addUserPlotLayer(map)
+      addPropertyBoundaryLayer(map, propertyBoundary)
       addAreaLabelsLayer(map, { visible: areaLabelsVisible })
       addTextLabelsLayers(map)
       addLineFeatureLayers(map)
@@ -2480,6 +2484,7 @@ export function MapView({
       restoreLayersAfterStyleChange(map, {
         kartverketOpacity,
         kartverketVisible,
+        propertyBoundary,
         fogMask: fogMaskPolygon(projectCenter),
         fogFadeRings: fogFadeRings(projectCenter),
       })
