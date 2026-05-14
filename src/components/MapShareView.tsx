@@ -7,12 +7,10 @@ import { centroid } from "@/lib/measurement"
 import { distanceMeters } from "@/lib/measurement"
 import { generateCanopyLines } from "@/lib/draw-circle-mode"
 import {
-  addKartverketLayer,
   addTextLabelsLayers,
   addLineFeatureLayers,
   addCanopyLinesLayer,
   addFogOfWarLayer,
-  addUserPlotLayer,
   addPropertyBoundaryLayer,
 } from "@/lib/map-layers"
 import {
@@ -36,27 +34,17 @@ const MAP_STYLES: Record<MapStyle, string> = {
 interface MapShareViewProps {
   projectCenter: [number, number]
   projectZoom: number
-  projectGnr: number | null
-  projectBnr: number | null
   propertyBoundary: Feature<Polygon> | null
   drawings: DrawingData
   mapStyle: MapStyle
-  kartverketVisible: boolean
-  kartverketOpacity: number
-  onKartverketLoadingChange?: (loading: boolean) => void
 }
 
 export function MapShareView({
   projectCenter,
   projectZoom,
-  projectGnr,
-  projectBnr,
   propertyBoundary,
   drawings,
   mapStyle,
-  kartverketVisible,
-  kartverketOpacity,
-  onKartverketLoadingChange,
 }: MapShareViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -99,11 +87,6 @@ export function MapShareView({
 
     map.on("load", () => {
       registerGardenPatterns(map)
-      addKartverketLayer(map, {
-        visible: kartverketVisible,
-        opacity: kartverketOpacity,
-      })
-      addUserPlotLayer(map, projectGnr, projectBnr)
       addPropertyBoundaryLayer(map, propertyBoundary)
       addShareDrawLayers(map)
       addCanopyLinesLayer(map)
@@ -134,11 +117,6 @@ export function MapShareView({
 
     map.once("style.load", () => {
       registerGardenPatterns(map)
-      addKartverketLayer(map, {
-        visible: kartverketVisible,
-        opacity: kartverketOpacity,
-      })
-      addUserPlotLayer(map, projectGnr, projectBnr)
       addPropertyBoundaryLayer(map, propertyBoundary)
       addShareDrawLayers(map)
       addCanopyLinesLayer(map)
@@ -158,43 +136,6 @@ export function MapShareView({
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapStyle])
-
-  // Kartverket toggle + loading detection
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (!map.getLayer("kartverket-topo")) return
-    // Bruk opacity-basert toggle slik at Mapbox fortsetter å hente
-    // tiles ved zoom-endringer — visibility:none ville stoppe
-    // tile-evalueringen og skape "ingen endring etter zoom"-bug.
-    if (kartverketVisible) {
-      map.setLayoutProperty("kartverket-topo", "visibility", "visible")
-    }
-    map.setPaintProperty(
-      "kartverket-topo",
-      "raster-opacity",
-      kartverketVisible ? kartverketOpacity : 0,
-    )
-    if (!kartverketVisible) {
-      onKartverketLoadingChange?.(false)
-      return
-    }
-    onKartverketLoadingChange?.(true)
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-    const finish = () => {
-      onKartverketLoadingChange?.(false)
-      map.off("idle", finish)
-      if (timeoutId) clearTimeout(timeoutId)
-    }
-    map.once("idle", finish)
-    // Fallback for utlandet: Kartverket blokkerer utenlandsk trafikk og
-    // tiles vil aldri komme. Klarér spinneren uansett etter 12s.
-    timeoutId = setTimeout(finish, 12_000)
-    return () => {
-      map.off("idle", finish)
-      if (timeoutId) clearTimeout(timeoutId)
-    }
-  }, [kartverketVisible, kartverketOpacity, onKartverketLoadingChange])
 
   return <div ref={containerRef} className="absolute inset-0" />
 }

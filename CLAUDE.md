@@ -22,18 +22,30 @@ eiendommer. Bruker logger inn med magic link, lagrer prosjekter i Supabase.
 - To tegnemodus: **Hage** (høy-nivå hage-elementer) og **Rå** (grunnformer).
 - Tegninger lagres som GeoJSON (`draw_features`, `text_features`,
   `line_features`) i `drawings`-tabellen, én rad per prosjekt.
-- Prosjekt = adresse + koordinater + GNR/BNR. GNR/BNR hentes automatisk
-  fra Kartverket adressesøk og er aldri brukerinnskrevet.
+- Prosjekt = adresse + koordinater + GNR/BNR + eiendomsgrense.
+  GNR/BNR hentes fra Kartverkets adressesøk; eiendomsgrensa (polygon)
+  hentes fra matrikkel-SOAP via Supabase Edge Function (se under) og
+  lagres som GeoJSON i `projects.property_boundary`.
 - Auto-save er debounced (500ms) til Supabase. Ingen localStorage, ingen
   offline-støtte.
 - **Deling:** prosjekt kan deles via lenke `/del/:shareId`. RLS-policy
   åpner public read når `sharing_enabled=true` og `share_id` er satt.
   Read-only-visningen lytter på Supabase realtime og oppdaterer
   automatisk når eier tegner.
-- **Fog of war:** kartet er begrenset til en sirkel rundt prosjektets
-  sentrum (v0.4: 500m approksimasjon, v0.5: faktisk eiendomsgrense +
-  100m buffer fra matrikkel-API). Maxbounds + draw-validering hindrer
-  panorering og tegning utenfor.
+- **Eiendomsgrense:** matrikkel-SOAP-integrasjon i Edge Function
+  `matrikkel-lookup` henter Teig + Teiggrenser + Teiggrensepunkt fra
+  Kartverket (5 SOAP-kall, stitcher segmenter til lukket polygon, leser
+  per-punkt koordinatsystemKodeId og projiserer UTM32/UTM33/UTM35 →
+  EPSG:4326). Resultatet lagres i `property_boundary` ved prosjekt-
+  opprettelse. Vises som stiplet amber linje på kartet via
+  `addPropertyBoundaryLayer`.
+- **Fog of war:** geometrisk buffer rundt eiendomsgrensa (100m) via
+  `@turf/buffer`. Buffer-polygonet brukes som maxBounds, draw-validering
+  og hull i fog-masken. Fallback til 400m-sirkel for gamle prosjekter
+  som mangler `property_boundary` (opprettet før v0.5).
+- **Bygninger:** matrikkel-SOAP gir kun representasjonspunkt per bygg,
+  ikke fotavtrykk. Fotavtrykk vil komme fra Geonorge FKB-Bygning WFS i
+  en senere fase.
 
 ## Regler
 

@@ -135,8 +135,6 @@ function LoadedMap({
 
   // View menu state
   const [mapStyle, setMapStyle] = useState<MapStyle>("satellite")
-  const [kartverketVisible, setKartverketVisible] = useState(false)
-  const [kartverketOpacity, setKartverketOpacity] = useState(0.4)
   const [areaLabelsVisible, setAreaLabelsVisible] = useState(false)
   const [solkompassVisible, setSolkompassVisible] = useState(false)
   const [solkompassDate, setSolkompassDate] = useState<Date>(() => new Date())
@@ -145,8 +143,6 @@ function LoadedMap({
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [sharingEnabled, setSharingEnabled] = useState(project.sharing_enabled)
   const [shareId, setShareId] = useState<string | null>(project.share_id)
-
-  const [kartverketLoading, setKartverketLoading] = useState(false)
 
   // Properties panel state — global defaults (never overwritten by selection)
   const [shapeDefaults, setShapeDefaults] = useState<ShapeProperties>({
@@ -334,8 +330,6 @@ function LoadedMap({
         projectId={project.id}
         projectCenter={[project.center_lng, project.center_lat]}
         projectZoom={project.zoom}
-        projectGnr={project.gnr}
-        projectBnr={project.bnr}
         propertyBoundary={project.property_boundary}
         initialDrawings={initialDrawings}
         onSaveStatusChange={onSaveStatusChange}
@@ -361,9 +355,6 @@ function LoadedMap({
         exportJSONRef={exportJSONRef}
         exportPNGRef={exportPNGRef}
         mapStyle={mapStyle}
-        kartverketVisible={kartverketVisible}
-        kartverketOpacity={kartverketOpacity}
-        onKartverketLoadingChange={setKartverketLoading}
         selectedGardenDiameter={selectedGardenDiameter}
         selectedGardenWidth={selectedGardenWidth}
         selectedGardenName={selectedGardenName}
@@ -419,11 +410,6 @@ function LoadedMap({
         <ViewControlsPopover
           mapStyle={mapStyle}
           onMapStyleChange={setMapStyle}
-          kartverketVisible={kartverketVisible}
-          onKartverketVisibleChange={setKartverketVisible}
-          kartverketOpacity={kartverketOpacity}
-          onKartverketOpacityChange={setKartverketOpacity}
-          kartverketLoading={kartverketLoading}
         />
       </div>
     </div>
