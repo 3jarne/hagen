@@ -336,6 +336,7 @@ function LoadedMap({
         projectZoom={project.zoom}
         projectGnr={project.gnr}
         projectBnr={project.bnr}
+        propertyBoundary={project.property_boundary}
         initialDrawings={initialDrawings}
         onSaveStatusChange={onSaveStatusChange}
         onZoomChange={handleZoomChange}

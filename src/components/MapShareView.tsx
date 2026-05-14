@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import mapboxgl from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
-import type { Feature } from "geojson"
+import type { Feature, Polygon } from "geojson"
 import { CONFIG, hasMapboxToken } from "@/config"
 import { centroid } from "@/lib/measurement"
 import { distanceMeters } from "@/lib/measurement"
@@ -13,6 +13,7 @@ import {
   addCanopyLinesLayer,
   addFogOfWarLayer,
   addUserPlotLayer,
+  addPropertyBoundaryLayer,
 } from "@/lib/map-layers"
 import {
   fogMaskPolygon,
@@ -35,6 +36,7 @@ interface MapShareViewProps {
   projectZoom: number
   projectGnr: number | null
   projectBnr: number | null
+  propertyBoundary: Feature<Polygon> | null
   drawings: DrawingData
   mapStyle: MapStyle
   kartverketVisible: boolean
@@ -47,6 +49,7 @@ export function MapShareView({
   projectZoom,
   projectGnr,
   projectBnr,
+  propertyBoundary,
   drawings,
   mapStyle,
   kartverketVisible,
@@ -96,6 +99,7 @@ export function MapShareView({
         opacity: kartverketOpacity,
       })
       addUserPlotLayer(map, projectGnr, projectBnr)
+      addPropertyBoundaryLayer(map, propertyBoundary)
       addShareDrawLayers(map)
       addCanopyLinesLayer(map)
       addTextLabelsLayers(map)
@@ -130,6 +134,7 @@ export function MapShareView({
         opacity: kartverketOpacity,
       })
       addUserPlotLayer(map, projectGnr, projectBnr)
+      addPropertyBoundaryLayer(map, propertyBoundary)
       addShareDrawLayers(map)
       addCanopyLinesLayer(map)
       addTextLabelsLayers(map)
