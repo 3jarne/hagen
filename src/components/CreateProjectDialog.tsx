@@ -24,7 +24,7 @@ import { createProject, type Project } from "@/lib/projects"
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated: (project: Project) => void
+  onCreated: (project: Project, options?: { osmFailed?: boolean }) => void
 }
 
 export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
@@ -128,6 +128,9 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
 
       // OSM-bygninger: best-effort. Hvis det feiler eller ikke finnes
       // bygninger, opprettes prosjektet uansett — brukeren kan tegne selv.
+      // osmFailed-flagget formidles til MapPage via navigate-state slik at
+      // brukeren får en diskret melding der.
+      let osmFailed = false
       try {
         const osm = await fetchOsmBuildings(matrikkel.boundary)
         if (osm.length > 0) {
@@ -140,9 +143,10 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
         }
       } catch (osmErr) {
         console.warn("[osm-buildings] kunne ikke hente:", osmErr)
+        osmFailed = true
       }
 
-      onCreated(project)
+      onCreated(project, { osmFailed })
     } catch (err) {
       if (err instanceof MatrikkelError) {
         setSaveError(

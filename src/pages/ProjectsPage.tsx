@@ -75,9 +75,14 @@ export function ProjectsPage() {
     }
   }, [])
 
-  const handleCreated = (project: Project) => {
+  const handleCreated = (
+    project: Project,
+    options?: { osmFailed?: boolean },
+  ) => {
     setCreateOpen(false)
-    navigate(`/prosjekt/${project.id}`)
+    navigate(`/prosjekt/${project.id}`, {
+      state: { osmFailed: options?.osmFailed ?? false },
+    })
   }
 
   const handleConfirmDelete = async () => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Navigate, useNavigate, useParams } from "react-router-dom"
-import { Loader2 } from "lucide-react"
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom"
+import { Loader2, X } from "lucide-react"
 import { TopBar } from "@/components/TopBar"
 import { MapView, type SaveStatus } from "@/components/MapView"
 import { FloatingToolbar, type Tool, type ToolbarMode } from "@/components/FloatingToolbar"
@@ -119,6 +119,16 @@ function LoadedMap({
   onSaveStatusChange,
   onBack,
 }: LoadedMapProps) {
+  const location = useLocation()
+  const initialOsmFailed =
+    (location.state as { osmFailed?: boolean } | null)?.osmFailed ?? false
+  const [osmWarningVisible, setOsmWarningVisible] = useState(initialOsmFailed)
+  useEffect(() => {
+    if (!osmWarningVisible) return
+    const t = window.setTimeout(() => setOsmWarningVisible(false), 10_000)
+    return () => window.clearTimeout(t)
+  }, [osmWarningVisible])
+
   const [zoomLevel, setZoomLevel] = useState(project.zoom)
   const [activeTool, setActiveTool] = useState<Tool>("select")
   const [toolbarMode, setToolbarMode] = useState<ToolbarMode>("garden")
@@ -305,6 +315,21 @@ function LoadedMap({
 
   return (
     <div className="h-screen w-screen overflow-hidden relative">
+      {osmWarningVisible && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 max-w-md bg-card border rounded-md shadow-lg px-4 py-2 text-sm flex items-center gap-2">
+          <span className="flex-1">
+            Bygninger kunne ikke hentes — du kan tegne dem selv.
+          </span>
+          <button
+            type="button"
+            aria-label="Lukk melding"
+            onClick={() => setOsmWarningVisible(false)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       <TopBar
         zoomLevel={zoomLevel}
         canUndo={canUndo}
