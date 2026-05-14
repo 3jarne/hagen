@@ -16,6 +16,8 @@ import {
   addPropertyBoundaryLayer,
 } from "@/lib/map-layers"
 import {
+  bufferedBoundary,
+  fallbackCircleBoundary,
   fogMaskPolygon,
   fogFadeRings,
   fogMaxBounds,
@@ -73,9 +75,12 @@ export function MapShareView({
     if (!hasMapboxToken()) return
     mapboxgl.accessToken = CONFIG.mapboxToken
 
-    const fogMask = fogMaskPolygon(projectCenter)
-    const fogFade = fogFadeRings(projectCenter)
-    const fogBounds = fogMaxBounds(projectCenter)
+    const fogBoundary =
+      propertyBoundary ?? fallbackCircleBoundary(projectCenter)
+    const fogBuffered = bufferedBoundary(fogBoundary)
+    const fogMask = fogMaskPolygon(fogBuffered)
+    const fogFade = fogFadeRings(fogBoundary)
+    const fogBounds = fogMaxBounds(fogBuffered)
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
@@ -139,10 +144,12 @@ export function MapShareView({
       addCanopyLinesLayer(map)
       addTextLabelsLayers(map)
       addLineFeatureLayers(map)
+      const styleBoundary =
+        propertyBoundary ?? fallbackCircleBoundary(projectCenter)
       addFogOfWarLayer(
         map,
-        fogMaskPolygon(projectCenter),
-        fogFadeRings(projectCenter),
+        fogMaskPolygon(bufferedBoundary(styleBoundary)),
+        fogFadeRings(styleBoundary),
       )
       applyDrawings(map, drawingsRef.current)
       attachHoverTooltip(map)
