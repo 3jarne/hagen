@@ -17,6 +17,8 @@ import {
   type AddressHit,
 } from "@/lib/kartverket"
 import { fetchMatrikkelData, MatrikkelError } from "@/lib/matrikkel"
+import { fetchOsmBuildings, osmBuildingToFeature } from "@/lib/osm-buildings"
+import { saveDrawing } from "@/lib/drawings"
 import { createProject, type Project } from "@/lib/projects"
 
 interface Props {
@@ -123,6 +125,23 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
         property_boundary: matrikkel.boundary,
         buildings: matrikkel.buildings,
       })
+
+      // OSM-bygninger: best-effort. Hvis det feiler eller ikke finnes
+      // bygninger, opprettes prosjektet uansett — brukeren kan tegne selv.
+      try {
+        const osm = await fetchOsmBuildings(matrikkel.boundary)
+        if (osm.length > 0) {
+          const features = osm.map(osmBuildingToFeature)
+          await saveDrawing(project.id, {
+            drawFeatures: features,
+            textFeatures: [],
+            lineFeatures: [],
+          })
+        }
+      } catch (osmErr) {
+        console.warn("[osm-buildings] kunne ikke hente:", osmErr)
+      }
+
       onCreated(project)
     } catch (err) {
       if (err instanceof MatrikkelError) {
