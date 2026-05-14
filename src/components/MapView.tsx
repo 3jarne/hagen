@@ -37,6 +37,8 @@ import {
 import { saveDrawing, type DrawingData } from "@/lib/drawings"
 import { exportJSON, exportPNG } from "@/lib/export"
 import {
+  bufferedBoundary,
+  fallbackCircleBoundary,
   fogMaskPolygon,
   fogFadeRings,
   fogMaxBounds,
@@ -1000,9 +1002,12 @@ export function MapView({
 
     mapboxgl.accessToken = CONFIG.mapboxToken
 
-    const fogMask = fogMaskPolygon(projectCenter)
-    const fogFade = fogFadeRings(projectCenter)
-    const fogBounds = fogMaxBounds(projectCenter)
+    const fogBoundary =
+      propertyBoundary ?? fallbackCircleBoundary(projectCenter)
+    const fogBuffered = bufferedBoundary(fogBoundary)
+    const fogMask = fogMaskPolygon(fogBuffered)
+    const fogFade = fogFadeRings(fogBoundary)
+    const fogBounds = fogMaxBounds(fogBuffered)
 
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
@@ -1150,7 +1155,7 @@ export function MapView({
       const rejected: string[] = []
       const accepted: GeoJSON.Feature[] = []
       for (const feature of e.features) {
-        if (!isFeatureInsideFog(feature, projectCenter)) {
+        if (!isFeatureInsideFog(feature, fogBuffered)) {
           rejected.push(feature.id as string)
         } else {
           accepted.push(feature)
@@ -2485,8 +2490,14 @@ export function MapView({
         kartverketOpacity,
         kartverketVisible,
         propertyBoundary,
-        fogMask: fogMaskPolygon(projectCenter),
-        fogFadeRings: fogFadeRings(projectCenter),
+        fogMask: fogMaskPolygon(
+          bufferedBoundary(
+            propertyBoundary ?? fallbackCircleBoundary(projectCenter),
+          ),
+        ),
+        fogFadeRings: fogFadeRings(
+          propertyBoundary ?? fallbackCircleBoundary(projectCenter),
+        ),
       })
       addUserPlotLayer(map)
 
